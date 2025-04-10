@@ -282,7 +282,7 @@ def plot_time_column(series: pd.Series, bins: int = 30, filepath: str=None, dpi:
         os.makedirs(filepath, exist_ok=True)
         
         # Sanitize the attribute name to create a safe filename
-        safe_name = "Line_Scatter_Plot"
+        safe_name = "times_Plot"
         filename = f"{safe_name}.png"
         full_path = os.path.join(filepath, filename)
         

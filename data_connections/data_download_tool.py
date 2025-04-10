@@ -28,6 +28,9 @@ for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading an
     try:
         json_content = client.download_annotation(annotT)
         fits_content = client.download_fits(fitsT)
+        hdu = fits_content[0].header
+        data = fits_content[0].data
+        
 
         hdu = fits_content[0].header
         if "TRKMODE" in hdu.keys():
@@ -79,12 +82,12 @@ for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading an
                 detection_dict["delta_x"] = object['x2']-object['x1']
                 detection_dict["delta_y"] = object['y2']-object['y1']
                 detection_dict["length"] = np.sqrt(detection_dict["delta_x"]**2 + detection_dict["delta_y"]**2)
+                detection_dict["angle"] = np.arctan2(detection_dict["delta_y"]/detection_dict["delta_x"])
             object_attributes.append(detection_dict)
 
         sample_attributes["num_stars"] = stars
         sample_attributes["num_sats"] = sats        
 
-        hdu = fits_content[0].header
         try:
             sample_attributes["rain_condition"] = hdu["SK.WEATHER.RAINCONDITION"]
             sample_attributes["rain"] = hdu["SK.WEATHER.RAIN"]
