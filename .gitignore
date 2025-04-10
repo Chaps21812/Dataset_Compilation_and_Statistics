@@ -2,4 +2,5 @@ aws
 data_connections/keys.py
 data_connections/data/
 data_connections/__pycache__/
+data/
 
