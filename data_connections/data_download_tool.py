@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from tqdm import tqdm
 import json
+import numpy as np
 
 directory = "third-party-data/PDS-RME03/CombinedAnnotations/Annotations/PDS-RME03/"
 download_directory = "./data/RME03Star/"
@@ -63,6 +64,7 @@ for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading an
                 detection_dict["delta_x"] = object['x_max']-object['x_min']
                 detection_dict["delta_y"] = object['y_max']-object['y_min']
                 detection_dict["snr"] = object['snr']
+                detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]
 
             if object['class_name']=="Star" and allow_stars: 
                 stars+=1
@@ -74,8 +76,9 @@ for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading an
                 detection_dict["y1"] = object['y1']
                 detection_dict["x2"] = object['x2']
                 detection_dict["y2"] = object['y2']
-                detection_dict["delta_x"] = object['x1']-object['x2']
-                detection_dict["delta_y"] = object['y1']-object['y2']
+                detection_dict["delta_x"] = object['x2']-object['x1']
+                detection_dict["delta_y"] = object['y2']-object['y1']
+                detection_dict["length"] = np.sqrt(detection_dict["delta_x"]**2 + detection_dict["delta_y"]**2)
             object_attributes.append(detection_dict)
 
         sample_attributes["num_stars"] = stars

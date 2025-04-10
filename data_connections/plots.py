@@ -1,0 +1,293 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+import os
+import re
+from typing import Union
+
+#This code was AI generated. I would love to spend time meticulously making plots, but I think my time is better spent analyzing them rather than adjusting details on a plot. 
+
+def detect_column_type(series: pd.Series) -> str:
+    """
+    Detect whether a pandas Series (column) is categorical or numerical.
+
+    Returns:
+        "categorical" or "numerical"
+    """
+    # Drop NaNs for analysis
+    s = series.dropna()
+
+    if "time" in s.name.lower():
+        return "time"
+    if "file" in s.name.lower():
+        return None
+
+    # If dtype is object or category, assume categorical
+    if pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
+        return "categorical"
+    
+    # If dtype is numeric, further check the number of unique values
+    if pd.api.types.is_numeric_dtype(s):
+        unique_vals = s.unique()
+        num_unique = len(unique_vals)
+        total = len(s)
+        
+        # Heuristic: if very few unique values relative to total, it's probably categorical
+        if num_unique / total < 0.05 or num_unique < 20:
+            return "categorical"
+        else:
+            return "numerical"
+    
+    # For boolean
+    if pd.api.types.is_bool_dtype(s):
+        return "categorical"
+
+    # Default fallback
+    return "categorical"
+
+def plot_categorical_column(series: pd.Series, filepath: str=None, dpi: int = 300 ):
+    """
+    Plot a bar chart for a categorical pandas Series with the mode, counts, and category name.
+    """
+    # Drop missing values
+    s = series.dropna()
+
+    # Count values
+    value_counts = s.value_counts()
+    mode_val = s.mode().iloc[0] if not s.mode().empty else "N/A"
+    col_name = series.name if series.name else "Unnamed Column"
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.bar(value_counts.index.astype(str), value_counts.values, color='teal', edgecolor='black')
+
+    # Annotate bars with counts
+    for bar, count in zip(bars, value_counts.values):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), str(count),
+                ha='center', va='bottom', fontsize=10)
+
+    # Add title with mode and column name
+    ax.set_title(f"Distribution of '{col_name}' (Mode: {mode_val})", fontsize=14)
+    ax.set_ylabel("Count")
+    ax.set_xlabel("Category")
+
+    # Rotate x-axis labels if needed
+    plt.xticks(rotation=45, ha='right')
+
+    # Create legend with counts
+    legend_labels = [f"{cat}: {cnt}" for cat, cnt in value_counts.items()]
+    ax.legend(legend_labels, title="Category Counts", loc='upper right')
+
+    plt.tight_layout()
+    if filepath is not None: 
+        os.makedirs(filepath, exist_ok=True)
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = re.sub(r'[^\w\-_.]', '_', col_name.strip())
+        filename = f"{safe_name}.png"
+        full_path = os.path.join(filepath, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.show()
+    
+def plot_numerical_column(series: pd.Series, bins: int = 30, filepath: str=None, dpi: int = 300 ):
+    """
+    Plot a histogram for a numerical pandas Series with key statistics and column name.
+    """
+    # Drop missing values
+    s = series.dropna()
+
+    # Compute statistics
+    mean_val = s.mean()
+    median_val = s.median()
+    std_val = s.std()
+    min_val = s.min()
+    max_val = s.max()
+    col_name = series.name if series.name else "Unnamed Column"
+
+    # Create histogram
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(s, bins=bins, color='teal', edgecolor='black')
+
+    # Add vertical lines for mean and median
+    ax.axvline(mean_val, color='red', linestyle='dashed', linewidth=1.5, label=f'Mean: {mean_val:.2f}')
+    ax.axvline(median_val, color='blue', linestyle='dashed', linewidth=1.5, label=f'Median: {median_val:.2f}')
+
+    # Set title and labels
+    ax.set_title(f"Distribution of '{col_name}'", fontsize=14)
+    ax.set_xlabel("Value")
+    ax.set_ylabel("Frequency")
+
+    # Create text box with stats
+    stats_text = (f"Mean: {mean_val:.2f}\n"
+                  f"Median: {median_val:.2f}\n"
+                  f"Std Dev: {std_val:.2f}\n"
+                  f"Min: {min_val:.2f}\n"
+                  f"Max: {max_val:.2f}")
+    
+    props = dict(boxstyle='round', facecolor='white', alpha=0.8)
+    ax.text(0.98, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', horizontalalignment='right', bbox=props)
+
+    # Add legend for mean and median lines
+    ax.legend(loc='upper left')
+
+    plt.tight_layout()
+    if filepath is not None: 
+        os.makedirs(filepath, exist_ok=True)
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = re.sub(r'[^\w\-_.]', '_', col_name.strip())
+        filename = f"{safe_name}.png"
+        full_path = os.path.join(filepath, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.show()
+
+def plot_scatter(x: pd.Series, y: pd.Series, alpha: float = 0.2, point_size: int = 40, color: str = 'teal', filepath: str=None, dpi: int = 300 ):
+    """
+    Create a scatter plot for two pandas Series with partial transparency to show point density.
+    """
+    # Align and drop missing values
+    df = pd.concat([x, y], axis=1).dropna()
+    x_vals = df.iloc[:, 0]
+    y_vals = df.iloc[:, 1]
+    x_name = x_vals.name if x_vals.name else "X"
+    y_name = y_vals.name if y_vals.name else "Y"
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    scatter = ax.scatter(x_vals, y_vals, alpha=alpha, s=point_size, color=color, edgecolor='black', linewidth=0.5)
+
+    # Set labels and title
+    ax.set_xlabel(x_name)
+    ax.set_ylabel(y_name)
+    ax.set_title(f"Scatter Plot of '{x_name}' vs '{y_name}'", fontsize=14)
+    # Axis limits from 0 to 1
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    # Add grid and layout
+    ax.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    if filepath is not None: 
+        os.makedirs(filepath, exist_ok=True)
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = "Scatter_Plot"
+        filename = f"{safe_name}.png"
+        full_path = os.path.join(filepath, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.show()
+    
+def plot_lines(x1: pd.Series, y1: pd.Series, x2: pd.Series, y2: pd.Series,
+               alpha: float = 0.2, color: str = 'teal', linewidth: float = 1.5, filepath: str=None, dpi: int = 300 ):
+    """
+    Plot line segments from (x1, y1) to (x2, y2) with transparency to visualize density.
+    """
+    # Combine into DataFrame and drop rows with missing values
+    df = pd.concat([x1, y1, x2, y2], axis=1).dropna()
+    col_names = df.columns.tolist()
+    
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    for idx, row in df.iterrows():
+        ax.plot([row[0], row[2]], [row[1], row[3]], color=color,
+                alpha=alpha, linewidth=linewidth)
+
+    # Axis labeling with fallback names
+    x_label = f"{col_names[0]} → {col_names[2]}" if all(col_names) else "X"
+    y_label = f"{col_names[1]} → {col_names[3]}" if all(col_names) else "Y"
+
+    ax.set_title(f"Line Segments from ({col_names[0]}, {col_names[1]}) to ({col_names[2]}, {col_names[3]})", fontsize=14)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    # Axis limits from 0 to 1
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    plt.tight_layout()
+    if filepath is not None: 
+        os.makedirs(filepath, exist_ok=True)
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = "Line_Scatter_Plot"
+        filename = f"{safe_name}.png"
+        full_path = os.path.join(filepath, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.show()
+
+def plot_time_column(series: pd.Series, bins: int = 30, filepath: str=None, dpi: int = 300 ):
+    """
+    Plot a histogram for a pandas Series of time data, showing key statistics such as mean, median, 
+    std dev, min, and max.
+    """
+    # Ensure the series is datetime
+    s = pd.to_datetime(series.dropna(), errors='coerce')
+    
+    # Compute statistics
+    mean_val = s.mean()
+    median_val = s.median()
+    std_val = s.std()
+    min_val = s.min()
+    max_val = s.max()
+    col_name = series.name if series.name else "Unnamed Column"
+
+    # Create histogram
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(s, bins=bins, color='teal', edgecolor='black')
+
+    # Add vertical lines for mean and median
+    ax.axvline(mean_val, color='red', linestyle='dashed', linewidth=1.5, label=f'Mean: {mean_val}')
+    ax.axvline(median_val, color='blue', linestyle='dashed', linewidth=1.5, label=f'Median: {median_val}')
+
+    # Set title and labels
+    ax.set_title(f"Distribution of '{col_name}'", fontsize=14)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Frequency")
+
+    # Format x-axis to show time properly
+    ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%H:%M:%S'))
+
+    # Create text box with stats
+    stats_text = (f"Mean: {mean_val}\n"
+                  f"Median: {median_val}\n"
+                  f"Std Dev: {std_val}\n"
+                  f"Min: {min_val}\n"
+                  f"Max: {max_val}")
+    
+    props = dict(boxstyle='round', facecolor='white', alpha=0.8)
+    ax.text(0.98, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', horizontalalignment='right', bbox=props)
+
+    # Add legend for mean and median lines
+    ax.legend(loc='upper left')
+
+    plt.tight_layout()
+    if filepath is not None: 
+        os.makedirs(filepath, exist_ok=True)
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = "Line_Scatter_Plot"
+        filename = f"{safe_name}.png"
+        full_path = os.path.join(filepath, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.show()
