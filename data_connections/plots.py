@@ -1,8 +1,11 @@
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
 import pandas as pd
 import os
 import re
 from typing import Union
+from astropy.visualization import ZScaleInterval
 
 #This code was AI generated. I would love to spend time meticulously making plots, but I think my time is better spent analyzing them rather than adjusting details on a plot. 
 
@@ -18,8 +21,6 @@ def detect_column_type(series: pd.Series) -> str:
 
     if "time" in s.name.lower():
         return "time"
-    if "file" in s.name.lower():
-        return None
 
     # If dtype is object or category, assume categorical
     if pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
@@ -36,6 +37,8 @@ def detect_column_type(series: pd.Series) -> str:
             return "categorical"
         else:
             return "numerical"
+        
+
     
     # For boolean
     if pd.api.types.is_bool_dtype(s):
@@ -291,3 +294,207 @@ def plot_time_column(series: pd.Series, bins: int = 30, filepath: str=None, dpi:
         plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
         # print(f"Plot saved to: {full_path}")
     plt.show()
+
+def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:int, full_file_path:str=None, dpi: int = 300):
+    """
+    Plots an image with a square annotation and a padding of 100 pixels on all sides.
+
+    Args:
+        image (np.ndarray): The image to display.
+        x (int): X-coordinate of the top-left corner of the annotation.
+        y (int): Y-coordinate of the top-left corner of the annotation.
+        size (int): Width/height of the square annotation.
+    """
+    # Image dimensions
+    img_h, img_w = image.shape[:2]
+
+    # Calculate padded annotation bounds
+    pad = 100
+    # Plot image
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(image, cmap='gray')
+
+    # Draw the padded rectangle
+    rect = patches.Rectangle(
+        (x-size/2, y-size/2),
+        size,
+        size,
+        linewidth=2,
+        edgecolor='red',
+        facecolor='none'
+    )
+    ax.add_patch(rect)
+    plt.xlim(x-size-50,x+size+50)
+    plt.ylim(y-size-50,y+size+50)
+
+    # Turn off axes and show
+    ax.set_axis_off()
+    plt.tight_layout()
+    if full_file_path is not None: 
+        file = os.path.basename(full_file_path)
+        direc = os.path.dirname(full_file_path)
+        direc = os.path.dirname(direc)
+        direc = os.path.join(direc, "annotation_view")
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = re.sub(r'[^\w\-_.]', '_', file.strip()).replace(".json","")
+        filename = f"{safe_name}_{object_n}.png"
+        full_path = os.path.join(direc, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+    plt.close()
+        # print(f"Plot saved to: {full_path}")
+
+def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, object_n:int, full_file_path:str=None, dpi: int = 300):
+    """
+    Plots an image with a line (x1, y1) -> (x2, y2) and a 100-pixel padded bounding box around the line.
+
+    Args:
+        image (np.ndarray): The image to display.
+        x1, y1, x2, y2 (int): Coordinates of the line.
+    """
+    img_h, img_w = image.shape[:2]
+    pad = 100
+
+    # Get bounding box around the line
+    min_x = max(0, min(x1, x2) - pad)
+    max_x = min(img_w, max(x1, x2) + pad)
+    min_y = max(0, min(y1, y2) - pad)
+    max_y = min(img_h, max(y1, y2) + pad)
+
+    # Compute width and height of padded box
+    width = max_x - min_x
+    height = max_y - min_y
+
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(image, cmap='gray')
+
+    # Draw the line
+    ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, label='Line', alpha=.2)
+
+    plt.xlim(min_x-width-50,max_x+width+50)
+    plt.ylim(min_y-height-50,max_y+height+50)
+
+
+    # Style
+    ax.set_title("Boundnig Box Annotation")
+    ax.set_axis_off()
+    ax.legend(loc='lower right')
+    plt.tight_layout()
+    if full_file_path is not None: 
+        file = os.path.basename(full_file_path)
+        direc = os.path.dirname(full_file_path)
+        direc = os.path.dirname(direc)
+        direc = os.path.join(direc, "annotation_view")
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = re.sub(r'[^\w\-_.]', '_', file.strip()).replace(".json","")
+        filename = f"{safe_name}_{object_n}.png"
+        full_path = os.path.join(direc, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.close()
+
+def plot_image(image: np.ndarray, full_file_path:str=None, dpi: int = 300):
+    """
+    Plots an image with a line (x1, y1) -> (x2, y2) and a 100-pixel padded bounding box around the line.
+
+    Args:
+        image (np.ndarray): The image to display.
+        x1, y1, x2, y2 (int): Coordinates of the line.
+    """
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(image, cmap='gray')
+
+    # Style
+    ax.set_title("Base Image")
+    ax.set_axis_off()
+    ax.invert_yaxis()  # Invert y-axis to match the original image orientation
+    plt.tight_layout()
+    if full_file_path is not None: 
+        file = os.path.basename(full_file_path)
+        direc = os.path.dirname(full_file_path)
+        direc = os.path.dirname(direc)
+        direc = os.path.join(direc, "annotation_view")
+        
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = re.sub(r'[^\w\-_.]', '_', file.strip()).replace(".json","")
+        filename = f"{safe_name}_full.png"
+        full_path = os.path.join(direc, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.close()
+
+def plot_all_annotations(image: np.ndarray, annotations: list, img_size: tuple, full_file_path:str=None, dpi: int = 300):
+    """
+    Plots an image with all annotations.
+
+    Args:
+        image (np.ndarray): The image to display.
+        annotations (list): List of annotation dictionaries.
+    """
+    # Plot
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(image, cmap='gray')
+
+    # Draw all annotations
+    for annotation in annotations:
+        if annotation['class_name'] == "Satellite":
+            x = annotation['x_center']*img_size[0]
+            y = annotation['y_center']*img_size[1]
+            size = annotation['x_max']*img_size[0] - annotation['x_min']*img_size[0]
+            rect = patches.Rectangle(
+                (x-size/2, y-size/2),
+                size,
+                size,
+                linewidth=2,
+                edgecolor='red',
+                facecolor='none'
+            )
+            ax.add_patch(rect)
+        elif annotation['class_name'] == "Star":
+            x1 = annotation['x1']*img_size[0]
+            y1 = annotation['y1']*img_size[1]
+            x2 = annotation['x2']*img_size[0]
+            y2 = annotation['y2']*img_size[1]
+            ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, alpha=.2)
+
+    # Style
+    ax.set_title("Base Image with All Annotations")
+    ax.set_axis_off()
+    ax.invert_yaxis()  # Invert y-axis to match the original image orientation
+    plt.tight_layout()
+    if full_file_path is not None: 
+        file = os.path.basename(full_file_path)
+        direc = os.path.dirname(full_file_path)
+        direc = os.path.dirname(direc)
+        direc = os.path.join(direc, "annotation_view")
+        
+        # Sanitize the attribute name to create a safe filename
+        safe_name = re.sub(r'[^\w\-_.]', '_', file.strip()).replace(".json","")
+        filename = f"{safe_name}_all_annotations.png"
+        full_path = os.path.join(direc, filename)
+        
+        # Save the plot
+        plt.tight_layout()
+        plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+        # print(f"Plot saved to: {full_path}")
+    plt.close()
+
+def z_scale_image(image:np.ndarray) -> np.ndarray:
+    norm = ZScaleInterval(contrast=0.2)
+    zscaled_data = norm(image)
+    return zscaled_data
