@@ -44,8 +44,6 @@ def detect_column_type(series: pd.Series) -> str:
     else:
         return "categorical"
                 
-    
-
 def plot_categorical_column(series: pd.Series, filepath: str=None, dpi: int = 300 ):
     """
     Plot a bar chart for a categorical pandas Series with the mode, counts, and category name.
@@ -328,6 +326,9 @@ def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:
 
     # Turn off axes and show
     ax.set_axis_off()
+    ax.set_title("Bounding Box Annotation")
+    ax.set_axis_off()
+    ax.legend(loc='lower right')
     plt.tight_layout()
     if full_file_path is not None: 
         file = os.path.basename(full_file_path)
@@ -380,7 +381,7 @@ def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, 
 
 
     # Style
-    ax.set_title("Boundnig Box Annotation")
+    ax.set_title("Line Segment Annotation")
     ax.set_axis_off()
     ax.legend(loc='lower right')
     plt.tight_layout()

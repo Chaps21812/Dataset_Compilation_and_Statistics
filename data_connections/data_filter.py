@@ -5,10 +5,9 @@ dataset_directory = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statist
 
 #Local file handling tool
 local_files = file_path_loader(dataset_directory)
-local_files.recalculate_statistics()
 #Pandas dataframes for referenece
 image_attributes = local_files.statistics_file.sample_attributes
 annotation_attributes = local_files.statistics_file.annotation_attributes
 
 # local_files.delete_files_from_annotation(annotation_attributes[annotation_attributes['measured_snr'] < 5.0])
-local_files.delete_files_from_sample(image_attributes[image_attributes['too_few_stars'] == True].sample(100))
+local_files.delete_files_from_sample(image_attributes[image_attributes['num_objects'] == 0].sample(700))

@@ -116,7 +116,6 @@ class file_path_loader():
                 print(f"Error deleting {path}: {e}")
         self.save_db()
     
-
     def recalculate_statistics(self):
         self.update_annotation_to_fits()
         self.new_db()
@@ -192,8 +191,8 @@ class file_path_loader():
                         detection_dict["y1"] = object['y1']
                         detection_dict["x2"] = object['x2']
                         detection_dict["y2"] = object['y2']
-                        detection_dict["delta_x"] = object['x2']-object['x1']
-                        detection_dict["delta_y"] = object['y2']-object['y1']
+                        detection_dict["delta_x"] = (object['x2']-object['x1'])*x_res
+                        detection_dict["delta_y"] = (object['y2']-object['y1'])*y_res
                         detection_dict["length"] = np.sqrt(detection_dict["delta_x"]**2 + detection_dict["delta_y"]**2)
                         if detection_dict["delta_x"] == 0:  
                             detection_dict["delta_x"] = 1e-10
@@ -213,11 +212,10 @@ class file_path_loader():
 
                 self.statistics_file.add_sample_attributes(sample_attributes)
                 self.statistics_file.add_annotation_attributes(object_attributes)
-            except FileNotFoundError as e:
-                pass
             except Exception as e:
                 print(f"Error processing {annotT}: {e}")
 
             self.save_db()
 
-            
+    def __len__(self):
+        return len(self.statistics_file.sample_attributes)
