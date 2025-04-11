@@ -21,31 +21,30 @@ def detect_column_type(series: pd.Series) -> str:
 
     if "time" in s.name.lower():
         return "time"
-
-    # If dtype is object or category, assume categorical
-    if pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
+    if "file" in s.name.lower():
         return "categorical"
+
+    # # If dtype is object or category, assume categorical
+    # if pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
+    #     return "categorical"
     
     # If dtype is numeric, further check the number of unique values
-    if pd.api.types.is_numeric_dtype(s):
-        unique_vals = s.unique()
-        num_unique = len(unique_vals)
-        total = len(s)
-        
-        # Heuristic: if very few unique values relative to total, it's probably categorical
-        if num_unique / total < 0.05 or num_unique < 20:
-            return "categorical"
-        else:
-            return "numerical"
-        
-
+    unique_vals = s.unique()
+    num_unique = len(unique_vals)
+    total = len(s)
     
-    # For boolean
-    if pd.api.types.is_bool_dtype(s):
+    # Heuristic: if very few unique values relative to total, it's probably categorical
+    if num_unique < 30:
         return "categorical"
-
-    # Default fallback
-    return "categorical"
+    elif pd.api.types.is_numeric_dtype(s):
+        return "numerical"
+    # For boolean
+    elif pd.api.types.is_bool_dtype(s):
+        return "categorical"
+    else:
+        return "categorical"
+                
+    
 
 def plot_categorical_column(series: pd.Series, filepath: str=None, dpi: int = 300 ):
     """

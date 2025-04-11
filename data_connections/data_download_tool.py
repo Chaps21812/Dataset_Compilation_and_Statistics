@@ -6,20 +6,23 @@ from tqdm import tqdm
 import json
 import numpy as np
 
-directory = "third-party-data/PDS-RME03/CombinedAnnotations/Annotations/PDS-RME03/"
+#Enter in the parameters you wish to download
+aws_directory = "third-party-data/PDS-RME03/CombinedAnnotations/Annotations/PDS-RME03/"
 download_directory = "./data/RME03Star/"
-statistics_filename = "RME03Star_Statistics.pkl"
-allow_stars = True
-allow_sats = False
+statistics_filename = "RME03Star"
 
-client = S3Client(directory)
+
+
+
+
+client = S3Client(aws_directory)
 db = PDStatistics_calculator()
 annotations_path = os.path.join(download_directory, "raw_annotation")
 fits_path = os.path.join(download_directory, "raw_fits")
+statistics_filename = f"{statistics_filename}_Statistics.pkl"
 os.makedirs(download_directory, exist_ok=True)
 os.makedirs(annotations_path, exist_ok=True)
 os.makedirs(fits_path, exist_ok=True)
-
 
 client.get_data(client.directory)
 for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading and Collecting Statistics"):
@@ -54,7 +57,7 @@ for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading an
         for object in json_content["objects"]:
             detection_dict = {}
             detection_dict["flux"] = object['iso_flux']
-            if object['class_name']=="Satellite" and allow_sats: 
+            if object['class_name']=="Satellite": 
                 sats+=1
                 detection_dict["filename"] = json_content["file"]["filename"]
                 detection_dict["object_type"] = object['class_name']
@@ -69,7 +72,7 @@ for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading an
                 detection_dict["snr"] = object['snr']
                 detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]
 
-            if object['class_name']=="Star" and allow_stars: 
+            if object['class_name']=="Star": 
                 stars+=1
                 detection_dict["filename"] = json_content["file"]["filename"]
                 detection_dict["object_type"] = object['class_name']

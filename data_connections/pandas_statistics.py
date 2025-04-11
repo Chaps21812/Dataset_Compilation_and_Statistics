@@ -46,3 +46,10 @@ class file_path_loader():
             full_fits_path = os.path.join(self.fits_file_path, fits_file)
             self.annotation_to_fits[full_annotation_path] = full_fits_path
         
+class Statistics_calculator(PickleSerializable):
+    def __init__(self, dataset_path:str=None):
+        self.dataset_path = dataset_path
+        if dataset_path is not None: self.loader = file_path_loader(self.dataset_path)
+
+    
+

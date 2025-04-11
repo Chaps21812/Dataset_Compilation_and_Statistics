@@ -5,10 +5,14 @@ import json
 from plots import plot_image_with_bbox, plot_image_with_line, z_scale_image, plot_image, plot_all_annotations
 from tqdm import tqdm
 
+#Enter the dataset directory you wish to plot annotations for
 dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/TakoTruckSatellite"
 view_satellite=False
 view_star=False
 view_image=True
+
+
+
 
 loader = file_path_loader(dataset_path)
 annotation_view_path = os.path.join(dataset_path, "annotation_view")
