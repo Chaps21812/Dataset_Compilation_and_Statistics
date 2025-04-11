@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 #Enter the dataset directory you wish to plot annotations for
 dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/TakoTruckSatellite"
-view_satellite=False
+view_satellite=True
 view_star=False
 view_image=True
 
