@@ -374,7 +374,8 @@ def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, 
     ax.imshow(image, cmap='gray')
 
     # Draw the line
-    ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, label='Line', alpha=.2)
+    # ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, label='Line', alpha=.2)
+    plt.arrow(x1, y1, x2-x1, y2-y1, head_width=2, head_length=2, fc='red', ec='red', alpha=.2)
 
     plt.xlim(min_x-width-50,max_x+width+50)
     plt.ylim(min_y-height-50,max_y+height+50)
@@ -383,7 +384,7 @@ def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, 
     # Style
     ax.set_title("Line Segment Annotation")
     ax.set_axis_off()
-    ax.legend(loc='lower right')
+    # ax.legend(loc='lower right')
     plt.tight_layout()
     if full_file_path is not None: 
         file = os.path.basename(full_file_path)
@@ -470,7 +471,8 @@ def plot_all_annotations(image: np.ndarray, annotations: list, img_size: tuple, 
             y1 = annotation['y1']*img_size[1]
             x2 = annotation['x2']*img_size[0]
             y2 = annotation['y2']*img_size[1]
-            ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, alpha=.2)
+            plt.arrow(x1, y1, x2-x1, y2-y1, head_width=2, head_length=2, fc='red', ec='red', alpha=.2)
+            # ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, alpha=.2)
 
     # Style
     ax.set_title("Base Image with All Annotations")

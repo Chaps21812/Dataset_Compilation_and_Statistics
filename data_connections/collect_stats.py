@@ -1,0 +1,128 @@
+from astropy.io import fits
+from datetime import datetime
+import numpy as np
+from math import atan2
+
+
+def circular_stats(angles_deg:list) -> tuple[float, float, float]:
+    """
+    Compute the mean and spread of a list of angles using circular statistics.
+
+    Args:
+        angles_deg (list or np.ndarray): List of angles in degrees.
+
+    Returns:
+        mean_angle_deg (float): Mean angle in degrees (0 to 360)
+        spread (float): Circular standard deviation (in radians)
+        R (float): Resultant vector length (0 to 1), inversely proportional to spread
+    """
+    angles_rad = np.deg2rad(angles_deg)
+    sin_vals = np.sin(angles_rad)
+    cos_vals = np.cos(angles_rad)
+
+    mean_sin = np.mean(sin_vals)
+    mean_cos = np.mean(cos_vals)
+
+    # Mean angle in radians
+    mean_angle_rad = np.arctan2(mean_sin, mean_cos)
+    mean_angle_deg = np.rad2deg(mean_angle_rad) % 360
+
+    # Resultant vector length
+    R = np.hypot(mean_cos, mean_sin)
+
+    # Circular standard deviation
+    circular_std = np.sqrt(-2 * np.log(R)) if R > 0 else np.inf
+
+    return mean_angle_deg, circular_std, R
+
+def collect_stats(json_content:dict, fits_content:fits) -> tuple[dict,dict]:
+    sample_attributes = {}
+    object_attributes = []
+
+    hdu = fits_content[0].header
+    data = fits_content[0].data
+
+
+    x_res = hdu["NAXIS2"]
+    y_res = hdu["NAXIS1"]
+
+    sample_attributes["filename"] = json_content["file"]["filename"]
+    sample_attributes["id_sensor"] = json_content["file"]["id_sensor"]
+    # sample_attributes["too_few_stars"] = json_content["too_few_stars"]
+    # sample_attributes["empty_image"] = json_content["empty_image"]
+    sample_attributes["num_objects"] = len(json_content["objects"])
+    sample_attributes["exposure"] = hdu["EXPTIME"]
+    sample_attributes["std_intensity"] = np.std(data)
+    sample_attributes["median_intensity"] = np.median(data)
+    
+    if sample_attributes["median_intensity"] == 0:
+        sample_attributes["median_intensity"] = 1e-10
+    if sample_attributes["std_intensity"] == 0:
+        sample_attributes["median_intensity"] = 1e-10
+
+    date_format = "%Y-%m-%dT%H:%M:%S.%f%z"
+    date_object = datetime.strptime(json_content["created"], date_format)
+    sample_attributes["dates"] = date_object.strftime("%Y-%m-%d")
+    sample_attributes["times"] = date_object.strftime("%H:%M:%S")
+
+    sats = 0
+    stars = 0
+    streak_angles = []
+    for object in json_content["objects"]:
+        detection_dict = {}
+        detection_dict["flux"] = object['iso_flux']
+        detection_dict["measured_snr"] = data[int(object['x_center']*x_res),int(object['y_center']*y_res)]/sample_attributes["std_intensity"]
+        detection_dict["measured_intensity_over_median"] = data[int(object['x_center']*x_res),int(object['y_center']*y_res)]/sample_attributes["median_intensity"]
+        if object['class_name']=="Satellite": 
+            sats+=1
+            detection_dict["filename"] = json_content["file"]["filename"]
+            detection_dict["object_type"] = object['class_name']
+            detection_dict["x_center"] = object['x_center']
+            detection_dict["y_center"] = object['y_center']
+            detection_dict["x_min"] = object['x_min']
+            detection_dict["y_min"] = object['y_min']
+            detection_dict["x_max"] = object['x_max']
+            detection_dict["y_max"] = object['y_max']
+            detection_dict["delta_x"] = object['x_max']-object['x_min']
+            detection_dict["delta_y"] = object['y_max']-object['y_min']
+            # detection_dict["snr"] = object['snr']
+            detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]
+
+        if object['class_name']=="Star": 
+            stars+=1
+            detection_dict["filename"] = json_content["file"]["filename"]
+            detection_dict["object_type"] = object['class_name']
+            detection_dict["x_center"] = object['x_center']
+            detection_dict["y_center"] = object['y_center']
+            detection_dict["x1"] = object['x1']
+            detection_dict["y1"] = object['y1']
+            detection_dict["x2"] = object['x2']
+            detection_dict["y2"] = object['y2']
+            detection_dict["delta_x"] = (object['x2']-object['x1'])*x_res
+            detection_dict["delta_y"] = (object['y2']-object['y1'])*y_res
+            detection_dict["length"] = np.sqrt(detection_dict["delta_x"]**2 + detection_dict["delta_y"]**2)
+            detection_dict["angle"] = atan2(detection_dict["delta_y"], detection_dict["delta_x"])*180/np.pi
+            streak_angles.append(detection_dict["angle"])
+        object_attributes.append(detection_dict)
+
+    if len(streak_angles) > 0: 
+        mean_angle_deg, circular_std, R = circular_stats(streak_angles)
+        sample_attributes["streak_direction_std"] = circular_std
+        sample_attributes["streak_direction_mean"] = mean_angle_deg
+    else:
+        sample_attributes["streak_direction_std"] = 0
+        sample_attributes["streak_direction_mean"] = 0
+        
+    sample_attributes["num_stars"] = stars
+    sample_attributes["num_sats"] = sats        
+
+    try:
+        sample_attributes["rain_condition"] = hdu["SK.WEATHER.RAINCONDITION"]
+        sample_attributes["rain"] = hdu["SK.WEATHER.RAIN"]
+        sample_attributes["humidity"] = hdu["SK.WEATHER.HUMIDITY"]
+        sample_attributes["windspeed"] = hdu["SK.WEATHER.WINDSPEED"]
+    except Exception as e:
+        pass
+
+
+    return sample_attributes, object_attributes

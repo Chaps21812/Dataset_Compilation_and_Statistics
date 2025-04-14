@@ -4,8 +4,9 @@ import os
 import json
 import shutil
 import datetime as dt
-import uuid
 import numpy as np
+from pandas_statistics import file_path_loader
+from tqdm import tqdm
 
 def compress_data(data_paths:list[str], output_zip:str) -> None:
     """
@@ -166,7 +167,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
                 if i%100==0:print(f"{i}/{total_copies}")
                 shutil.copy(image, data_folder+"/images")
 
-def satsim_to_coco(satsim_path:str, destination_path:str, zip:bool=False, notes:str=""):
+def silt_to_coco(silt_dataset_path:str, zip:bool=False, notes:str=""):
     """
     Converts a satasim generated dataset into a coco dataset
 
@@ -180,12 +181,20 @@ def satsim_to_coco(satsim_path:str, destination_path:str, zip:bool=False, notes:
         train, test, split (tuple): List of files present in the train test split
     """
     path_to_annotation = {}
+    loader =  file_path_loader(silt_dataset_path)
     satsim_paths = os.listdir(satsim_path)
 
-    for i,path in enumerate(satsim_paths):
+    for i,path in tqdm(enumerate(satsim_paths), desc="Converting Silt to COCO"):
+        raw_fits_path=os.path.join(satsim_path, path, "raw_fits")
+        raw_annotations_path=os.path.join(satsim_path, path, "raw_annotation")
+        fits_path=os.path.join(satsim_path, path, "ImageFiles")
+        annotations_path=os.path.join(satsim_path, path, "Annotations")
+
         fits_path=satsim_path+"/"+path+"/ImageFiles"
         annotations_path=satsim_path+"/"+path+"/Annotations"
         config_path = satsim_path+"/"+path+"/config.json"
+
+        
         with open(config_path, 'r') as f:
             config_data = json.load(f)
         for frame_no, fits_name in enumerate(os.listdir(fits_path)):
