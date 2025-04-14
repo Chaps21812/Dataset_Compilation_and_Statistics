@@ -6,13 +6,6 @@ from tqdm import tqdm
 import json
 import numpy as np
 
-#Enter in the parameters you wish to download
-aws_directory = "third-party-data/PDS-RME03/CombinedAnnotations/Annotations/PDS-RME03/"
-download_directory = "./data/RME03Star/"
-statistics_filename = "RME03Star"
-
-
-
 def download_data(aws_directory:str, download_directory:str, statistics_filename:str):
     """
     Downloads data from AWS S3 and collects statistics.
@@ -79,6 +72,7 @@ def download_data(aws_directory:str, download_directory:str, statistics_filename
 
             sats = 0
             stars = 0
+            streak_angles = []
             for object in json_content["objects"]:
                 detection_dict = {}
                 detection_dict["json_path"] = annot_local_path
@@ -86,7 +80,6 @@ def download_data(aws_directory:str, download_directory:str, statistics_filename
                 detection_dict["flux"] = object['iso_flux']
                 detection_dict["measured_snr"] = data[int(object['x_center']*x_res),int(object['y_center']*y_res)]/sample_attributes["std_intensity"]
                 detection_dict["measured_intensity_over_median"] = data[int(object['x_center']*x_res),int(object['y_center']*y_res)]/sample_attributes["median_intensity"]
-
                 if object['class_name']=="Satellite": 
                     sats+=1
                     detection_dict["filename"] = json_content["file"]["filename"]
@@ -99,7 +92,7 @@ def download_data(aws_directory:str, download_directory:str, statistics_filename
                     detection_dict["y_max"] = object['y_max']
                     detection_dict["delta_x"] = object['x_max']-object['x_min']
                     detection_dict["delta_y"] = object['y_max']-object['y_min']
-                    detection_dict["snr"] = object['snr']
+                    # detection_dict["snr"] = object['snr']
                     detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]
 
                 if object['class_name']=="Star": 
@@ -112,16 +105,21 @@ def download_data(aws_directory:str, download_directory:str, statistics_filename
                     detection_dict["y1"] = object['y1']
                     detection_dict["x2"] = object['x2']
                     detection_dict["y2"] = object['y2']
-                    detection_dict["delta_x"] = object['x2']-object['x1']
-                    detection_dict["delta_y"] = object['y2']-object['y1']
+                    detection_dict["delta_x"] = (object['x2']-object['x1'])*x_res
+                    detection_dict["delta_y"] = (object['y2']-object['y1'])*y_res
                     detection_dict["length"] = np.sqrt(detection_dict["delta_x"]**2 + detection_dict["delta_y"]**2)
                     if detection_dict["delta_x"] == 0:  
                         detection_dict["delta_x"] = 1e-10
                     detection_dict["angle"] = np.arctan(detection_dict["delta_y"]/detection_dict["delta_x"])*180/np.pi
+                    streak_angles.append(detection_dict["angle"])
                 object_attributes.append(detection_dict)
 
+            if len(streak_angles) > 0: 
+                sample_attributes["streak_direction_std"] = np.std(streak_angles)
+            else:
+                sample_attributes["streak_direction_std"] = 0
             sample_attributes["num_stars"] = stars
-            sample_attributes["num_sats"] = sats        
+            sample_attributes["num_sats"] = sats         
 
             try:
                 sample_attributes["rain_condition"] = hdu["SK.WEATHER.RAINCONDITION"]

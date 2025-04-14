@@ -79,6 +79,9 @@ class file_path_loader():
         Args:
             path_series (pd.Series): Series of file paths (as strings).
         """
+        unique_files = path_series["json_path"].dropna().unique()
+        self.statistics_file.sample_attributes = self.statistics_file.sample_attributes[~self.statistics_file.sample_attributes["json_path"].isin(unique_files)].copy()
+
         self.statistics_file.annotation_attributes.drop(path_series.index, inplace=True)
         for path in tqdm(path_series["json_path"].dropna(), desc="Deleting files"):
             fits_path = self.annotation_to_fits[path]
@@ -101,6 +104,9 @@ class file_path_loader():
         Args:
             path_series (pd.Series): Series of file paths (as strings).
         """
+        unique_files = path_series["json_path"].dropna().unique()
+        self.statistics_file.annotation_attributes = self.statistics_file.annotation_attributes[~self.statistics_file.annotation_attributes["json_path"].isin(unique_files)].copy()
+
         self.statistics_file.sample_attributes.drop(path_series.index, inplace=True)
         for path in tqdm(path_series["json_path"].dropna(), desc="Deleting files"):
             fits_path = self.annotation_to_fits[path]
@@ -159,6 +165,7 @@ class file_path_loader():
 
                 sats = 0
                 stars = 0
+                streak_angles = []
                 for object in json_content["objects"]:
                     detection_dict = {}
                     detection_dict["json_path"] = annotT
@@ -197,8 +204,13 @@ class file_path_loader():
                         if detection_dict["delta_x"] == 0:  
                             detection_dict["delta_x"] = 1e-10
                         detection_dict["angle"] = np.arctan(detection_dict["delta_y"]/detection_dict["delta_x"])*180/np.pi
+                        streak_angles.append(detection_dict["angle"])
                     object_attributes.append(detection_dict)
 
+                if len(streak_angles) > 0: 
+                    sample_attributes["streak_direction_std"] = np.std(streak_angles)
+                else:
+                    sample_attributes["streak_direction_std"] = 0
                 sample_attributes["num_stars"] = stars
                 sample_attributes["num_sats"] = sats        
 
@@ -215,7 +227,7 @@ class file_path_loader():
             except Exception as e:
                 print(f"Error processing {annotT}: {e}")
 
-            self.save_db()
+        self.save_db()
 
     def __len__(self):
         return len(self.statistics_file.sample_attributes)
