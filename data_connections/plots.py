@@ -22,7 +22,9 @@ def detect_column_type(series: pd.Series) -> str:
     if "time" in s.name.lower():
         return "time"
     if "file" in s.name.lower():
-        return "categorical"
+        return "file"
+    if "path" in s.name.lower():
+        return "file"
 
     # # If dtype is object or category, assume categorical
     # if pd.api.types.is_object_dtype(s) or pd.api.types.is_categorical_dtype(s):
@@ -292,7 +294,7 @@ def plot_time_column(series: pd.Series, bins: int = 30, filepath: str=None, dpi:
         # print(f"Plot saved to: {full_path}")
     plt.show()
 
-def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:int, full_file_path:str=None, dpi: int = 300):
+def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:int, full_file_path:str=None, dpi: int = 300, snr:tuple=None, alpha=.3):
     """
     Plots an image with a square annotation and a padding of 100 pixels on all sides.
 
@@ -318,9 +320,11 @@ def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:
         size,
         linewidth=2,
         edgecolor='red',
-        facecolor='none'
+        facecolor='none', 
+        alpha=alpha
     )
     ax.add_patch(rect)
+    ax.text(snr[0], snr[1], snr[2], fontsize=12, color='red', ha='right', va='bottom', alpha=alpha)
     plt.xlim(x-size-50,x+size+50)
     plt.ylim(y-size-50,y+size+50)
 
@@ -347,7 +351,7 @@ def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:
     plt.close()
         # print(f"Plot saved to: {full_path}")
 
-def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, object_n:int, full_file_path:str=None, dpi: int = 300):
+def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, object_n:int, full_file_path:str=None, dpi: int = 300, snr:tuple=None, alpha=.3):
     """
     Plots an image with a line (x1, y1) -> (x2, y2) and a 100-pixel padded bounding box around the line.
 
@@ -372,10 +376,13 @@ def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, 
     # Plot
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.imshow(image, cmap='gray')
+    ax.text(snr[0], snr[1], snr[2], fontsize=12, color='red', ha='right', va='bottom', alpha=alpha)
+    plt.plot(snr[0], snr[1], 'ro', markersize=5, alpha=alpha)
+
 
     # Draw the line
     # ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, label='Line', alpha=.2)
-    plt.arrow(x1, y1, x2-x1, y2-y1, head_width=2, head_length=2, fc='red', ec='red', alpha=.2)
+    plt.arrow(x1, y1, x2-x1, y2-y1, head_width=2, head_length=2, fc='red', ec='red', alpha=alpha)
 
     plt.xlim(min_x-width-50,max_x+width+50)
     plt.ylim(min_y-height-50,max_y+height+50)

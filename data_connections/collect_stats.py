@@ -4,7 +4,7 @@ import numpy as np
 from math import atan2
 
 
-def circular_stats(angles_deg:list) -> tuple[float, float, float]:
+def directed_circular_stats(angles_deg:list) -> tuple[float, float, float]:
     """
     Compute the mean and spread of a list of angles using circular statistics.
 
@@ -35,13 +35,43 @@ def circular_stats(angles_deg:list) -> tuple[float, float, float]:
 
     return mean_angle_deg, circular_std, R
 
-def collect_stats(json_content:dict, fits_content:fits) -> tuple[dict,dict]:
+def circular_stats(angles_deg:list) -> tuple[float, float, float]:
+    """
+    Compute circular mean and spread of undirected angles (mod 180°).
+    
+    Args:
+        angles_deg (list or np.ndarray): List of angles in degrees
+
+    Returns:
+        mean_angle_deg (float): Mean orientation (0-180°)
+        circular_std (float): Circular standard deviation (radians)
+        R (float): Resultant vector length (0 to 1), inverse of spread
+    """
+    angles_rad = np.deg2rad(angles_deg)
+    doubled_angles = 2 * angles_rad
+
+    sin_vals = np.sin(doubled_angles)
+    cos_vals = np.cos(doubled_angles)
+
+    mean_sin = np.mean(sin_vals)
+    mean_cos = np.mean(cos_vals)
+
+    mean_angle_2rad = np.arctan2(mean_sin, mean_cos)
+    mean_angle_rad = mean_angle_2rad / 2
+    mean_angle_deg = np.rad2deg(mean_angle_rad) % 180
+
+    R = np.hypot(mean_cos, mean_sin)
+    circular_std = np.sqrt(-2 * np.log(R)) if R > 0 else np.inf
+
+    return mean_angle_deg, circular_std, R
+
+def collect_stats(json_content:dict, fits_content:fits, padding:int=30) -> tuple[dict,dict]:
     sample_attributes = {}
     object_attributes = []
+    padding = padding
 
     hdu = fits_content[0].header
     data = fits_content[0].data
-
 
     x_res = hdu["NAXIS2"]
     y_res = hdu["NAXIS1"]
@@ -68,11 +98,16 @@ def collect_stats(json_content:dict, fits_content:fits) -> tuple[dict,dict]:
     sats = 0
     stars = 0
     streak_angles = []
+    streak_lengths = []
     for object in json_content["objects"]:
         detection_dict = {}
         detection_dict["flux"] = object['iso_flux']
-        detection_dict["measured_snr"] = data[int(object['x_center']*x_res),int(object['y_center']*y_res)]/sample_attributes["std_intensity"]
-        detection_dict["measured_intensity_over_median"] = data[int(object['x_center']*x_res),int(object['y_center']*y_res)]/sample_attributes["median_intensity"]
+
+        x_cord= object["x_center"]*x_res
+        y_cord= object["y_center"]*y_res
+
+        detection_dict["measured_snr"] = data[int(x_cord),int(y_cord)]/sample_attributes["std_intensity"]
+        detection_dict["measured_intensity_over_median"] = data[int(x_cord),int(y_cord)]/sample_attributes["median_intensity"]
         if object['class_name']=="Satellite": 
             sats+=1
             detection_dict["filename"] = json_content["file"]["filename"]
@@ -88,6 +123,23 @@ def collect_stats(json_content:dict, fits_content:fits) -> tuple[dict,dict]:
             # detection_dict["snr"] = object['snr']
             detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]
 
+            x_max = max(detection_dict["x_min"], detection_dict["x_max"])*x_res
+            x_min = min(detection_dict["x_min"], detection_dict["x_max"])*x_res
+            y_max = max(detection_dict["y_min"], detection_dict["y_max"])*y_res
+            y_min = min(detection_dict["y_min"], detection_dict["y_max"])*y_res
+
+            y_start = max(0, y_min - padding)
+            y_end   = min(data.shape[0], y_max + padding)
+            x_start = max(0, x_min - padding)
+            x_end   = min(data.shape[1], x_max + padding)
+
+            window = data[int(x_start):int(x_end), int(y_start):int(y_end),]
+            minimum = np.min(window)
+            signal = data[int(x_cord), int(y_cord)]
+
+            detection_dict["prominence"] = signal/minimum
+
+
         if object['class_name']=="Star": 
             stars+=1
             detection_dict["filename"] = json_content["file"]["filename"]
@@ -102,17 +154,39 @@ def collect_stats(json_content:dict, fits_content:fits) -> tuple[dict,dict]:
             detection_dict["delta_y"] = (object['y2']-object['y1'])*y_res
             detection_dict["length"] = np.sqrt(detection_dict["delta_x"]**2 + detection_dict["delta_y"]**2)
             detection_dict["angle"] = atan2(detection_dict["delta_y"], detection_dict["delta_x"])*180/np.pi
+
+            x_max = max(detection_dict["x1"], detection_dict["x2"])*x_res
+            x_min = min(detection_dict["x1"], detection_dict["x2"])*x_res
+            y_max = max(detection_dict["y1"], detection_dict["y2"])*y_res
+            y_min = min(detection_dict["y1"], detection_dict["y2"])*y_res
+
+            y_start = max(0, y_min - padding)
+            y_end   = min(data.shape[0], y_max + padding)
+            x_start = max(0, x_min - padding)
+            x_end   = min(data.shape[1], x_max + padding)
+
+            window = data[int(x_start):int(x_end), int(y_start):int(y_end),]
+            minimum = np.min(window)
+            signal = data[int(x_cord), int(y_cord)]
+
+            detection_dict["prominence"] = signal/minimum
+            
             streak_angles.append(detection_dict["angle"])
+            streak_lengths.append(detection_dict["length"])
         object_attributes.append(detection_dict)
 
     if len(streak_angles) > 0: 
-        mean_angle_deg, circular_std, R = circular_stats(streak_angles)
+        mean_angle_deg, circular_std, R = directed_circular_stats(streak_angles)
         sample_attributes["streak_direction_std"] = circular_std
         sample_attributes["streak_direction_mean"] = mean_angle_deg
+        sample_attributes["streak_length_mean"] = np.mean(streak_lengths)
+        sample_attributes["streak_length_std"] = np.std(streak_lengths)
     else:
         sample_attributes["streak_direction_std"] = 0
         sample_attributes["streak_direction_mean"] = 0
-        
+        sample_attributes["streak_length_mean"] = 0
+        sample_attributes["streak_length_std"] = 0
+
     sample_attributes["num_stars"] = stars
     sample_attributes["num_sats"] = sats        
 
