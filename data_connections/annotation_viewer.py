@@ -1,18 +1,19 @@
 from astropy.io import fits
-from pandas_statistics import file_path_loader
+from pandas_statistics import file_path_loader, satsim_path_loader
 import os
 import json
 from plots import plot_image_with_bbox, plot_image_with_line, z_scale_image, plot_image, plot_all_annotations
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
+from typing import Union
 #Enter the dataset directory you wish to plot annotations for
 dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/RME03Star/"
 view_satellite=False
 view_star=False
 view_image=True
 
-def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_satellite:bool=False, view_star:bool=False, view_image:bool=True):
+def plot_annotation_subset(pandas_library:pd.DataFrame, loader:Union[file_path_loader, satsim_path_loader], view_satellite:bool=False, view_star:bool=False, view_image:bool=True):
     """
     Plots annotations from a dataset.
 
@@ -23,7 +24,7 @@ def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_s
     view_image (bool): Whether to plot the image with annotations.
     """
 
-    loader = file_path_loader(dataset_path)
+    dataset_path = loader.directory
     annotation_view_path = os.path.join(dataset_path, "annotation_view")
     os.makedirs(annotation_view_path, exist_ok=True)
 
@@ -37,6 +38,9 @@ def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_s
         hdu = fits_file[0].header
         raw_data = fits_file[0].data
 
+        if "data" in annotation.keys():
+            annotation = annotation["data"]
+
         #The XY coordinates are reverse intentionally. Beware!
         y_res = hdu["NAXIS2"]
         x_res = hdu["NAXIS1"]
@@ -49,6 +53,9 @@ def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_s
         for index,object in enumerate(annotation["objects"]):
             x_cord= object["x_center"]*x_res
             y_cord= object["y_center"]*y_res
+
+            if x_cord < 0 or y_cord < 0 or x_cord > data.shape[1] or y_cord > data.shape[0]:
+                continue
 
             half = 50
             x_start = max(0, x_cord - half)
@@ -66,7 +73,19 @@ def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_s
                 if view_satellite: plot_image_with_bbox(data,object['x_center']*x_res,object['y_center']*y_res,object['x_max']*x_res-object['x_min']*x_res,index, json_path, dpi=500, snr=snr_tuple)
 
             if object['class_name']=="Star": 
-                if view_star: plot_image_with_line(data,object['x1']*x_res,object['y1']*y_res,object['x2']*x_res,object['y2']*y_res,index, json_path, dpi=500, snr=snr_tuple)
+                if "x_start" in object.keys():
+                    x1 = object['x_start']
+                    y1 = object['y_start']
+                    x2 = object['x_end']
+                    y2 = object['y_end']
+                else:
+                    x1 = object['x1']
+                    y1 = object['y1']
+                    x2 = object['x2']
+                    y2 = object['y2']
+                if x1 < 0 or y1 < 0 or x2 < 0 or y2 < 0 or x1 > data.shape[1] or y1 > data.shape[0] or x2 > data.shape[1] or y2 > data.shape[0]:
+                    continue
+                if view_star: plot_image_with_line(data,x1*x_res,y1*y_res,x2*x_res,y2*y_res,index, json_path, dpi=500, snr=snr_tuple)
 
 def plot_annotations(dataset_path:str, view_satellite:bool=False, view_star:bool=False, view_image:bool=True):
     """

@@ -332,13 +332,13 @@ def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:
     ax.set_axis_off()
     ax.set_title("Bounding Box Annotation")
     ax.set_axis_off()
-    ax.legend(loc='lower right')
     plt.tight_layout()
     if full_file_path is not None: 
         file = os.path.basename(full_file_path)
         direc = os.path.dirname(full_file_path)
         direc = os.path.dirname(direc)
         direc = os.path.join(direc, "annotation_view")
+        os.makedirs(direc, exist_ok=True)
         
         # Sanitize the attribute name to create a safe filename
         safe_name = re.sub(r'[^\w\-_.]', '_', file.strip()).replace(".json","")
@@ -392,13 +392,13 @@ def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, 
     # Style
     ax.set_title("Line Segment Annotation")
     ax.set_axis_off()
-    # ax.legend(loc='lower right')
     plt.tight_layout()
     if full_file_path is not None: 
         file = os.path.basename(full_file_path)
         direc = os.path.dirname(full_file_path)
         direc = os.path.dirname(direc)
         direc = os.path.join(direc, "annotation_view")
+        os.makedirs(direc, exist_ok=True)
         
         # Sanitize the attribute name to create a safe filename
         safe_name = re.sub(r'[^\w\-_.]', '_', file.strip()).replace(".json","")
@@ -476,10 +476,16 @@ def plot_all_annotations(image: np.ndarray, annotations: list, img_size: tuple, 
             )
             ax.add_patch(rect)
         elif annotation['class_name'] == "Star":
-            x1 = annotation['x1']*img_size[0]
-            y1 = annotation['y1']*img_size[1]
-            x2 = annotation['x2']*img_size[0]
-            y2 = annotation['y2']*img_size[1]
+            if "x_start" in annotation.keys():
+                x1 = annotation['x_start']*img_size[0]
+                y1 = annotation['y_start']*img_size[1]
+                x2 = annotation['x_end']*img_size[0]
+                y2 = annotation['y_end']*img_size[1]
+            else:
+                x1 = annotation['x1']*img_size[0]
+                y1 = annotation['y1']*img_size[1]
+                x2 = annotation['x2']*img_size[0]
+                y2 = annotation['y2']*img_size[1]
             plt.arrow(x1, y1, x2-x1, y2-y1, head_width=2, head_length=2, fc='red', ec='red', alpha=.2)
             # ax.plot([x1, x2], [y1, y2], color='red', linewidth=2, alpha=.2)
 
@@ -493,6 +499,7 @@ def plot_all_annotations(image: np.ndarray, annotations: list, img_size: tuple, 
         direc = os.path.dirname(full_file_path)
         direc = os.path.dirname(direc)
         direc = os.path.join(direc, "annotation_view")
+        os.makedirs(direc, exist_ok=True)
         
         # Sanitize the attribute name to create a safe filename
         safe_name = re.sub(r'[^\w\-_.]', '_', file.strip()).replace(".json","")
