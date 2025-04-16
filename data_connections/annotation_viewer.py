@@ -57,11 +57,10 @@ def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_s
             y_end   = min(data.shape[0], y_cord + half)
 
             window = raw_data[int(y_start):int(y_end), int(x_start):int(x_end)]
-            minimum = np.min(window)
+            local_minimum = np.min(window)
+            local_std = np.std(window)
             signal = raw_data[int(y_cord), int(x_cord)]
-            snr_tuple = (object["x_center"]*x_res, object["y_center"]*y_res,"Prom: {}".format(signal/minimum))
-
-
+            snr_tuple = (object["x_center"]*x_res, object["y_center"]*y_res,"Prom: {}".format((signal-local_minimum)/local_std))
 
             if object['class_name']=="Satellite": 
                 if view_satellite: plot_image_with_bbox(data,object['x_center']*x_res,object['y_center']*y_res,object['x_max']*x_res-object['x_min']*x_res,index, json_path, dpi=500, snr=snr_tuple)
