@@ -2,6 +2,7 @@ from astropy.io import fits
 from datetime import datetime
 import numpy as np
 from math import atan2
+from plots import plot_image_with_line, z_scale_image
 
 
 def directed_circular_stats(angles_deg:list) -> tuple[float, float, float]:
@@ -65,7 +66,7 @@ def circular_stats(angles_deg:list) -> tuple[float, float, float]:
 
     return mean_angle_deg, circular_std, R
 
-def collect_stats(json_content:dict, fits_content:fits, padding:int=30) -> tuple[dict,dict]:
+def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple[dict,dict]:
     sample_attributes = {}
     object_attributes = []
     padding = padding
@@ -73,8 +74,8 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=30) -> tuple
     hdu = fits_content[0].header
     data = fits_content[0].data
 
-    x_res = hdu["NAXIS2"]
-    y_res = hdu["NAXIS1"]
+    x_res = hdu["NAXIS1"]
+    y_res = hdu["NAXIS2"]
 
     sample_attributes["filename"] = json_content["file"]["filename"]
     sample_attributes["id_sensor"] = json_content["file"]["id_sensor"]
@@ -105,9 +106,8 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=30) -> tuple
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res
+        signal = data[int(y_cord), int(x_cord)]
 
-        detection_dict["measured_snr"] = data[int(x_cord),int(y_cord)]/sample_attributes["std_intensity"]
-        detection_dict["measured_intensity_over_median"] = data[int(x_cord),int(y_cord)]/sample_attributes["median_intensity"]
         if object['class_name']=="Satellite": 
             sats+=1
             detection_dict["filename"] = json_content["file"]["filename"]
@@ -127,18 +127,6 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=30) -> tuple
             x_min = min(detection_dict["x_min"], detection_dict["x_max"])*x_res
             y_max = max(detection_dict["y_min"], detection_dict["y_max"])*y_res
             y_min = min(detection_dict["y_min"], detection_dict["y_max"])*y_res
-
-            y_start = max(0, y_min - padding)
-            y_end   = min(data.shape[0], y_max + padding)
-            x_start = max(0, x_min - padding)
-            x_end   = min(data.shape[1], x_max + padding)
-
-            window = data[int(x_start):int(x_end), int(y_start):int(y_end),]
-            minimum = np.min(window)
-            signal = data[int(x_cord), int(y_cord)]
-
-            detection_dict["prominence"] = signal/minimum
-
 
         if object['class_name']=="Star": 
             stars+=1
@@ -160,19 +148,25 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=30) -> tuple
             y_max = max(detection_dict["y1"], detection_dict["y2"])*y_res
             y_min = min(detection_dict["y1"], detection_dict["y2"])*y_res
 
-            y_start = max(0, y_min - padding)
-            y_end   = min(data.shape[0], y_max + padding)
-            x_start = max(0, x_min - padding)
-            x_end   = min(data.shape[1], x_max + padding)
-
-            window = data[int(x_start):int(x_end), int(y_start):int(y_end),]
-            minimum = np.min(window)
-            signal = data[int(x_cord), int(y_cord)]
-
-            detection_dict["prominence"] = signal/minimum
-            
             streak_angles.append(detection_dict["angle"])
-            streak_lengths.append(detection_dict["length"])
+            streak_lengths.append(detection_dict["length"])    
+
+        y_start = max(0, y_min - padding)
+        y_end   = min(data.shape[0], y_max + padding)
+        x_start = max(0, x_min - padding)
+        x_end   = min(data.shape[1], x_max + padding)
+
+        window = data[int(y_start):int(y_end),int(x_start):int(x_end)]
+        local_minimum = np.min(window)
+        local_median = np.median(window)
+        local_maximum = np.max(window)
+        local_std = np.std(window)
+        
+        detection_dict["local_prominence"] = (signal-local_minimum)/(local_std+1*10**-5)
+        detection_dict["local_snr"] = (signal-local_median)/(local_std+1*10**-5)
+        detection_dict["max_signal_diff"] = (local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
+        detection_dict["global_snr"] = (signal-local_median)/sample_attributes["std_intensity"]
+        
         object_attributes.append(detection_dict)
 
     if len(streak_angles) > 0: 

@@ -38,8 +38,8 @@ def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_s
         raw_data = fits_file[0].data
 
         #The XY coordinates are reverse intentionally. Beware!
-        x_res = hdu["NAXIS2"]
-        y_res = hdu["NAXIS1"]
+        y_res = hdu["NAXIS2"]
+        x_res = hdu["NAXIS1"]
 
         noise = np.std(raw_data)
         median_pixel = np.median(raw_data)
@@ -50,17 +50,18 @@ def plot_annotation_subset(pandas_library:pd.DataFrame, dataset_path:str, view_s
             x_cord= object["x_center"]*x_res
             y_cord= object["y_center"]*y_res
 
-            half = 100 // 2
-            y_start = max(0, y_cord - half)
-            y_end   = min(data.shape[0], y_cord + half)
+            half = 50
             x_start = max(0, x_cord - half)
             x_end   = min(data.shape[1], x_cord + half)
+            y_start = max(0, y_cord - half)
+            y_end   = min(data.shape[0], y_cord + half)
 
-            window = raw_data[int(x_start):int(x_end), int(y_start):int(y_end)]
+            window = raw_data[int(y_start):int(y_end), int(x_start):int(x_end)]
             minimum = np.min(window)
-
-            signal = raw_data[int(x_cord), int(y_cord)]
+            signal = raw_data[int(y_cord), int(x_cord)]
             snr_tuple = (object["x_center"]*x_res, object["y_center"]*y_res,"Prom: {}".format(signal/minimum))
+
+
 
             if object['class_name']=="Satellite": 
                 if view_satellite: plot_image_with_bbox(data,object['x_center']*x_res,object['y_center']*y_res,object['x_max']*x_res-object['x_min']*x_res,index, json_path, dpi=500, snr=snr_tuple)

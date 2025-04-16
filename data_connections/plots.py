@@ -294,7 +294,7 @@ def plot_time_column(series: pd.Series, bins: int = 30, filepath: str=None, dpi:
         # print(f"Plot saved to: {full_path}")
     plt.show()
 
-def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:int, full_file_path:str=None, dpi: int = 300, snr:tuple=None, alpha=.3):
+def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:int, full_file_path:str=None, dpi: int = 300, snr:tuple=None, alpha=.3, show:bool=False):
     """
     Plots an image with a square annotation and a padding of 100 pixels on all sides.
 
@@ -348,10 +348,11 @@ def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:
         # Save the plot
         plt.tight_layout()
         plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
+    if show: plt.show()
     plt.close()
         # print(f"Plot saved to: {full_path}")
 
-def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, object_n:int, full_file_path:str=None, dpi: int = 300, snr:tuple=None, alpha=.3):
+def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, object_n:int, full_file_path:str=None, dpi: int = 300, snr:tuple=None, alpha=.3, show:bool=False):
     """
     Plots an image with a line (x1, y1) -> (x2, y2) and a 100-pixel padded bounding box around the line.
 
@@ -408,6 +409,7 @@ def plot_image_with_line(image: np.ndarray, x1: int, y1: int, x2: int, y2: int, 
         plt.tight_layout()
         plt.savefig(full_path, dpi=dpi, bbox_inches='tight')
         # print(f"Plot saved to: {full_path}")
+    if show: plt.show()
     plt.close()
 
 def plot_image(image: np.ndarray, full_file_path:str=None, dpi: int = 300):
