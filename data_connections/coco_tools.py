@@ -8,6 +8,7 @@ import numpy as np
 from pandas_statistics import file_path_loader
 from tqdm import tqdm
 from astropy.io import fits
+import pycocotools
 
 def compress_data(data_paths:list[str], output_zip:str) -> None:
     """
@@ -70,7 +71,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         annotations_queue.extend(annotations["annotations"])
         notes_queue.append({"info":annotations["info"], "notes":annotations["notes"], "directory": directory })
 
-        catagories_queue.extend(annotations["catagories"]) #try and find a smarter way of dealing with catagories pls
+        catagories_queue.extend(annotations["categories"]) #try and find a smarter way of dealing with categories pls
         templist = [os.path.join(directory, "images", image) for image in os.listdir(os.path.join(directory, "images"))]
         path_to_image.extend(templist)
     annotations_id_to_index = [[] for i in range(len(images_queue))]
@@ -123,7 +124,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
                 "info": info,
                 "images": [images_queue[i] for i in indicies],
                 "annotations":all_anot,
-                "catagories": catagories_queue,
+                "categories": catagories_queue,
                 "notes": notes}
             data_attributes_obj=json.dumps(all_data, indent=4)
             with open(os.path.join(annotations_alias, "annotations.json"), "w") as outfile:
@@ -151,7 +152,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
             "info": info,
             "images": images_queue,
             "annotations": annotations_queue,
-            "catagories": catagories_queue,
+            "categories": catagories_queue,
             "notes": notes}
         data_attributes_obj=json.dumps(all_data, indent=4)
         with open(os.path.join(new_annotations_folder, "annotations.json"), "w") as outfile:
@@ -253,9 +254,9 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         path_to_annotation[fits_path] = {"annotation":annotations, "image":image, "new_id":image_id}
 
     #Compile final json information for folder
-    category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
-    category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
-    catagories = [category1, category2]
+    category1 = {"id": 0,"name": "Satellite","supercategory": "Space Object",}
+    category2 = {"id": 1,"name": "Star","supercategory": "Space Object",}
+    categories = [category1, category2]
     now = dt.datetime.now()
     info = {
         "year": now.year,
@@ -284,7 +285,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         "info": info,
         "images": images,
         "annotations": annotations,
-        "catagories": catagories,
+        "categories": categories,
         "notes": notes}
     with open(os.path.join(new_annotations_path, "annotations.json"), "w") as outfile:
         data_attributes_obj=json.dumps(all_data, indent=4)
@@ -401,9 +402,9 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
                 path_to_annotation[fits_file] = {"annotation":annotations, "image":image, "new_id":image_id}
 
     #Compile final json information for folder
-    category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
-    category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
-    catagories = [category1, category2]
+    category1 = {"id": 0,"name": "Satellite","supercategory": "Space Object",}
+    category2 = {"id": 1,"name": "Star","supercategory": "Space Object",}
+    categories = [category1, category2]
     now = dt.datetime.now()
     info = {
         "year": now.year,
@@ -432,7 +433,7 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
         "info": info,
         "images": images,
         "annotations": annotations,
-        "catagories": catagories,
+        "categories": categories,
         "notes": notes}
     data_attributes_obj=json.dumps(all_data, indent=4)
     with open(os.path.join(annotations_folder, "annotations.json"), "w") as outfile:
