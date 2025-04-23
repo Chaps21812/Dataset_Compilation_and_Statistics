@@ -10,6 +10,20 @@ from tqdm import tqdm
 from astropy.io import fits
 import pycocotools
 
+def merge_categories(category_list:list):
+    name_to_category = {}
+    
+    for cat in category_list:
+        name = cat['name']
+        if name not in name_to_category:
+            name_to_category[name] = {
+                "id": cat["id"],
+                "name": cat['name'],
+                "supercategory": cat.get("supercategory", "")
+            }
+
+    return list(name_to_category.values())
+
 def compress_data(data_paths:list[str], output_zip:str) -> None:
     """
     Zips all images in the image path into a zipfile in the output path. Compresses each file one by one to reduce overhead memory requirements 
@@ -79,6 +93,8 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         id_to_index[item["id"]] = index
     for index,anot in enumerate(annotations_queue):
         annotations_id_to_index[id_to_index[anot["image_id"]]].append(index)
+    merged_catagories = merge_categories(catagories_queue)
+
     
     now = dt.datetime.now()
     info = {
@@ -124,7 +140,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
                 "info": info,
                 "images": [images_queue[i] for i in indicies],
                 "annotations":all_anot,
-                "categories": catagories_queue,
+                "categories": merged_catagories,
                 "notes": notes}
             data_attributes_obj=json.dumps(all_data, indent=4)
             with open(os.path.join(annotations_alias, "annotations.json"), "w") as outfile:
