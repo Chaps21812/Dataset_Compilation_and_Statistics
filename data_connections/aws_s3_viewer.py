@@ -4,6 +4,7 @@ import io
 import os
 from astropy.io import fits
 from tqdm import tqdm
+from collections import defaultdict
 
 class S3Client:
     def __init__(self, directory:str):
@@ -15,6 +16,8 @@ class S3Client:
         self.fits_files = []
         self.folders = []
         self.annotation_to_fits = {}
+        self.folder_file_count = {}
+
 
     def get_data(self, directory):
         paginator = self.client.get_paginator('list_objects_v2')
@@ -26,6 +29,7 @@ class S3Client:
                     keyString = key["Key"]
                     if ".fits" in keyString:
                         self.fits_files.append(keyString)
+                        os.path.dirname(keyString)
                     elif ".json" in keyString:
                         self.annotations.append(keyString)
                     else:
@@ -51,9 +55,9 @@ class S3Client:
         response = self.client.get_object(Bucket=self.bucket, Key=fits_path)
         fits_content = io.BytesIO(response['Body'].read())
         return fits.open(fits_content)
-
+    
 if __name__ == "__main__":
-    s3_client = S3Client("third-party-data/PDS-RME04/")
+    s3_client = S3Client("third-party-data/PDS-RME04/Satellite/Annotations/PDS-RME04/")
     s3_client.get_data(s3_client.directory)
     print(f"# of annotations: {len(s3_client.annotations)}")
     print(f"# of fits: {len(s3_client.fits_files)}")

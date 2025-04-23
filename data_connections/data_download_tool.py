@@ -65,3 +65,8 @@ def download_data(aws_directory:str, download_directory:str, statistics_filename
             print(f"Error processing {annotT}: {e}")
 
         db.save(os.path.join(download_directory, statistics_filename))
+
+def summarize_s3_structure(aws_directory:str):
+    client = S3Client(aws_directory)
+    client.summarize_s3_structure()
+    
