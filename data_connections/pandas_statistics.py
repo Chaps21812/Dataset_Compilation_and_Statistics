@@ -5,6 +5,7 @@ import json
 from astropy.io import fits
 from tqdm import tqdm
 from collect_stats import collect_stats, collect_satsim_stats
+from documentation import write_count
 
 class PickleSerializable:
     def save(self, filename):
@@ -70,6 +71,7 @@ class file_path_loader():
 
     def save_db(self):
         self.statistics_file.save(self.statistics_filename)
+        write_count(os.path.join(self.directory, "counts.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
 
     def delete_files_from_annotation(self, path_series: pd.DataFrame):
         """
@@ -80,8 +82,9 @@ class file_path_loader():
         """
         unique_files = path_series["json_path"].dropna().unique()
         self.statistics_file.sample_attributes = self.statistics_file.sample_attributes[~self.statistics_file.sample_attributes["json_path"].isin(unique_files)].copy()
+        self.statistics_file.annotation_attributes = self.statistics_file.annotation_attributes[~self.statistics_file.annotation_attributes["json_path"].isin(unique_files)].copy()
 
-        self.statistics_file.annotation_attributes.drop(path_series.index, inplace=True)
+        # self.statistics_file.annotation_attributes.drop(path_series.index, inplace=True, axis=0)
         for path in tqdm(path_series["json_path"].dropna(), desc="Deleting files"):
             fits_path = self.annotation_to_fits[path]
             try:
@@ -105,8 +108,9 @@ class file_path_loader():
         """
         unique_files = path_series["json_path"].dropna().unique()
         self.statistics_file.annotation_attributes = self.statistics_file.annotation_attributes[~self.statistics_file.annotation_attributes["json_path"].isin(unique_files)].copy()
+        self.statistics_file.sample_attributes = self.statistics_file.sample_attributes[~self.statistics_file.sample_attributes["json_path"].isin(unique_files)].copy()
 
-        self.statistics_file.sample_attributes.drop(path_series.index, inplace=True)
+        # self.statistics_file.sample_attributes.drop(path_series.index, inplace=True)
         for path in tqdm(path_series["json_path"].dropna(), desc="Deleting files"):
             fits_path = self.annotation_to_fits[path]
             try:
