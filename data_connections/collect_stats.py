@@ -91,8 +91,10 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     if sample_attributes["std_intensity"] == 0:
         sample_attributes["median_intensity"] = 1e-10
 
-    date_format = "%Y-%m-%dT%H:%M:%S.%f%z"
-    date_object = datetime.strptime(json_content["created"], date_format)
+    # date_format = "%Y-%m-%dT%H:%M:%S.%f%z"
+    # date_object = datetime.strptime(json_content["created"], date_format)
+    date_format = "%Y-%m-%dT%H:%M:%S.%f"
+    date_object = datetime.strptime(hdu["DATE-OBS"], date_format)
     sample_attributes["dates"] = date_object.strftime("%Y-%m-%d")
     sample_attributes["times"] = date_object.strftime("%H:%M:%S")
 
@@ -121,7 +123,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
             detection_dict["delta_x"] = object['x_max']-object['x_min']
             detection_dict["delta_y"] = object['y_max']-object['y_min']
             # detection_dict["snr"] = object['snr']
-            detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]
+            detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]*x_res*y_res
 
             x_max = max(detection_dict["x_min"], detection_dict["x_max"])*x_res
             x_min = min(detection_dict["x_min"], detection_dict["x_max"])*x_res
@@ -253,7 +255,7 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
             detection_dict["delta_x"] = object['bbox_width']
             detection_dict["delta_y"] = object['bbox_height']
             detection_dict["magnitude"] = object['magnitude']
-            detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]
+            detection_dict["area"] = detection_dict["delta_x"]*detection_dict["delta_y"]*x_res*y_res
 
             x_max = max(detection_dict["x_min"], detection_dict["x_max"])*x_res
             x_min = min(detection_dict["x_min"], detection_dict["x_max"])*x_res
