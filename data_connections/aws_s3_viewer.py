@@ -4,7 +4,7 @@ import io
 import os
 from astropy.io import fits
 from tqdm import tqdm
-from collections import defaultdict
+from collections import Counter
 
 class S3Client:
     def __init__(self, directory:str):
@@ -12,11 +12,16 @@ class S3Client:
         self.bucket = "silt-annotations"
         self.directory = directory
 
-        self.annotations = []
-        self.fits_files = []
         self.folders = []
         self.annotation_to_fits = {}
-        self.folder_file_count = {}
+        
+        self.fits_filename_to_path = {}
+        self.annotation_filename_to_path = {}
+        
+        self.basenames = Counter()
+        self.dirnames = Counter()
+
+        self.errors = 0
 
 
     def get_data(self, directory):
@@ -27,23 +32,26 @@ class S3Client:
             if "Contents" in page:
                 for key in page[ "Contents" ]:
                     keyString = key["Key"]
+                    dirname = os.path.dirname(keyString)
+                    basename = os.path.basename(keyString)
                     if ".fits" in keyString:
-                        self.fits_files.append(keyString)
-                        os.path.dirname(keyString)
+                        self.fits_filename_to_path[basename] = keyString
+                        self.basenames.update([basename])
                     elif ".json" in keyString:
-                        self.annotations.append(keyString)
+                        self.annotation_filename_to_path[basename] = keyString
+                        self.dirnames.update([dirname])
+                        self.basenames.update([basename])
                     else:
                         self.folders.append(keyString)
         self._create_annotation_mapping()
+        print(f"FITS:{len(self.fits_filename_to_path)}, Annot:{len(self.annotation_filename_to_path)}, Errors:{self.errors}, TotalSynced:{len(self.annotation_to_fits)}")
 
     def _create_annotation_mapping(self) -> dict:
-        for annotation_path in self.annotations:
-            directory = os.path.dirname(annotation_path)
-            image_directory = os.path.join(directory, "ImageFiles")
-            annotation_file = annotation_path.split("/")[-1]
-            fits_file = annotation_file.replace(".json", ".fits")
-            fits_path = os.path.join(image_directory, fits_file)
-            self.annotation_to_fits[annotation_path] = fits_path
+        for annotation_filename, annot_full_path in self.annotation_filename_to_path.items():
+            fits_file = annotation_filename.replace(".json", ".fits")
+            fits_full_path = self.fits_filename_to_path[fits_file]
+            try: self.annotation_to_fits[annot_full_path] = fits_full_path
+            except KeyError: self.errors += 1
         return self.annotation_to_fits
 
     def download_annotation(self, annotation_path:str) -> dict:
@@ -56,9 +64,17 @@ class S3Client:
         fits_content = io.BytesIO(response['Body'].read())
         return fits.open(fits_content)
     
+    def summarize_s3_structure(self):
+        print(f"# of annotations: {len(self.annotation_filename_to_path)}")
+        print(f"# of fits: {len(self.fits_filename_to_path)}")
+        print(f"# of folders: {len(self.folders)}")
+        for dirname,count in self.dirnames.items():
+            print(f"{dirname}: {count}")
+        # for tuplee in self.basenames.most_common(5):
+        #     print(f"Filename: {tuplee[0]}, Count: {tuplee[1]}")
+
+    
 if __name__ == "__main__":
     s3_client = S3Client("third-party-data/PDS-RME04/Satellite/Annotations/PDS-RME04/")
     s3_client.get_data(s3_client.directory)
-    print(f"# of annotations: {len(s3_client.annotations)}")
-    print(f"# of fits: {len(s3_client.fits_files)}")
-    print(f"# of folders: {len(s3_client.folders)}")
+    s3_client.summarize_s3_structure()
