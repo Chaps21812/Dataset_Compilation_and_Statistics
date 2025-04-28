@@ -223,10 +223,10 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "line_center": [object["x_mid"],object["y_mid"]],
                     "iso_flux": object["iso_flux"],
                     "iscrowd": 0,
-                    "y_min": 0.5030691964285716,
-                    "x_min": 0.4793526785714285,
-                    "y_max": 0.5079520089285716,
-                    "x_max": 0.4842354910714285,
+                    "y_min": object["y_center"]-object["bbox_height"]/2,
+                    "x_min": object["x_center"]-object["bbox_width"]/2,
+                    "y_max": object["y_center"]+object["bbox_height"]/2,
+                    "x_max": object["x_center"]+object["bbox_width"]/2,
                     }
                 annotations.append(annotation)
 
@@ -262,7 +262,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "lat":header["SITELAT"],
             "lat":header["SITELAT"],
             "lon":header["CENTALT"],
-            "file_name": str(image_id)+".fits",
+            "file_name": os.path.join("images", f"{image_id}.fits"),
             "original_path": fits_path,
             "date": header["DATE-OBS"]}
 
@@ -409,7 +409,7 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
                     "alt":config_data["geometry"]["site"]["alt"],
                     "lat":config_data["geometry"]["site"]["lat"],
                     "lon":config_data["geometry"]["site"]["lon"],
-                    "file_name": str(image_id)+".fits",
+                    "file_name": os.path.join("images", f"{image_id}.fits"),
                     "original_path": fits_file,
                     "frame_no": frame_no,
                     "date": config_data["geometry"]["time"]}
