@@ -8,7 +8,7 @@ import numpy as np
 from pandas_statistics import file_path_loader
 from tqdm import tqdm
 from astropy.io import fits
-import pycocotools
+from PIL import Image
 
 def merge_categories(category_list:list):
     name_to_category = {}
@@ -31,6 +31,12 @@ def compress_data(data_paths:list[str], output_zip:str) -> None:
     Args:
         input_data (list[str]): Input list of files to compress
         stars (str): Output ZIP path, must end in abc.zip
+
+    Not used too much anymore, if you would like to use it, use
+    if zip:
+        compress_data(path_to_annotation.keys(), os.path.join(new_fits_path,"compressed_fits.zip"))
+
+
     """
     with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for image_path in tqdm(data_paths, desc="Compressing images", total=len(data_paths)):
@@ -95,6 +101,9 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         annotations_id_to_index[id_to_index[anot["image_id"]]].append(index)
     merged_catagories = merge_categories(catagories_queue)
 
+    filetype="fits"
+    if ".png" in path_to_image[0]:
+        filetype="png"
     
     now = dt.datetime.now()
     info = {
@@ -111,8 +120,8 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         titles = ["train","val","test"]
         file_list_split = split_files(path_to_image, train_ratio=train_ratio, val_ratio=val_ratio, test_ratio=test_ratio)
         for j,temp_list in enumerate(file_list_split):
-            indicies = [id_to_index[int(single_path.split("/")[-1].replace(".fits",""))] for single_path in temp_list]
-            temp_anot_index = [annotations_id_to_index[id_to_index[int(single_path.split("/")[-1].replace(".fits",""))]] for single_path in temp_list]
+            indicies = [id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))] for single_path in temp_list]
+            temp_anot_index = [annotations_id_to_index[id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))]] for single_path in temp_list]
 
             ### For one large dataset
             # Save annotation data to corresponding train test json
@@ -181,7 +190,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
             for image in tqdm(path_to_image, desc="Copying images", total=len(path_to_image)):
                 shutil.copy(image, new_images_folder)
 
-def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, notes:str=""):
+def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
     """
     Converts a satasim generated dataset into a coco dataset
 
@@ -196,6 +205,10 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
     """
     path_to_annotation = {}
     local_files =  file_path_loader(silt_dataset_path)
+
+    filetype="fits"
+    if convert_png:
+        filetype="png"
 
     for annotation_path,fits_path in tqdm(local_files.annotation_to_fits.items(), desc="Converting Silt to COCO"):        
         with open(annotation_path, 'r') as f:
@@ -219,8 +232,6 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "centroid": [object["x_center"],object["y_center"]],
                     "bbox": [object["x_center"],object["y_center"],object["bbox_width"],object["bbox_height"]],
                     "area": object["bbox_width"]*object["bbox_height"],
-                    "line": [object["x_start"],object["y_start"],object["x_end"],object["y_end"]],
-                    "line_center": [object["x_mid"],object["y_mid"]],
                     "iso_flux": object["iso_flux"],
                     "iscrowd": 0,
                     "y_min": object["y_center"]-object["bbox_height"]/2,
@@ -250,7 +261,6 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     }
                 annotations.append(annotation)
 
-        
         image = {
             "id": image_id,
             "width": json_data["sensor"]["width"],
@@ -262,7 +272,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "lat":header["SITELAT"],
             "lat":header["SITELAT"],
             "lon":header["CENTALT"],
-            "file_name": os.path.join("images", f"{image_id}.fits"),
+            "file_name": os.path.join("images", f"{image_id}.{filetype}"),
             "original_path": fits_path,
             "date": header["DATE-OBS"]}
 
@@ -284,12 +294,18 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
 
     ### For one large dataset
     #Make new data directory
-    new_fits_path=os.path.join(silt_dataset_path, "images")
-    new_annotations_path=os.path.join(silt_dataset_path, "annotations")
-    os.makedirs(new_fits_path, exist_ok=True)
-    os.makedirs(new_annotations_path, exist_ok=True)
+    images_folder=os.path.join(silt_dataset_path, "images")
+    annotations_folder=os.path.join(silt_dataset_path, "annotations")
+    if os.path.exists(images_folder) and os.path.isdir(images_folder):
+        shutil.rmtree(images_folder)
+        print(f"Deleted folder: {images_folder}")
+    if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
+        shutil.rmtree(annotations_folder)
+        print(f"Deleted folder: {annotations_folder}")
+    os.makedirs(images_folder, exist_ok=True)
+    os.makedirs(annotations_folder, exist_ok=True)
 
-
+    # Compiling information for annotation file
     images = []
     annotations = []
     for path in path_to_annotation.keys():
@@ -303,20 +319,34 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         "annotations": annotations,
         "categories": categories,
         "notes": notes}
-    with open(os.path.join(new_annotations_path, "annotations.json"), "w") as outfile:
+    with open(os.path.join(annotations_folder, "annotations.json"), "w") as outfile:
         data_attributes_obj=json.dumps(all_data, indent=4)
         outfile.write(data_attributes_obj)
 
     #Saving Images with or without compression
+    # Compresses to zip, copies file and renames, PNG, and preprocessed
     if zip:
-        compress_data(path_to_annotation.keys(), os.path.join(new_fits_path,"compressed_fits.zip"))
+        compress_data(path_to_annotation.keys(), os.path.join(images_folder,"compressed_fits.zip"))
     else:
         for image in tqdm(path_to_annotation.keys(), desc="Copying images", total=len(path_to_annotation.keys())):
-            new_fits_name = os.path.join(new_fits_path,str(path_to_annotation[image]["new_id"])+".fits")
-            destination_path = shutil.copy(image, new_fits_path)
-            shutil.move(destination_path,new_fits_name)
+            new_file_name = os.path.join(images_folder,str(path_to_annotation[image]["new_id"])+f".{filetype}")
+            if convert_png:
+                hdu = fits.open(image)
+                hdul = hdu[0]
+                data = hdul.data
+                if process_func is not None:
+                    data = process_func(data)
+                else: 
+                    data = np.stack([data,data,data], axis=0)
+                    data = (data / 256).astype(np.uint8)
+                data = np.transpose(data, (1,2,0))
+                png = Image.fromarray(data)
+                png.save(new_file_name)
+            else:
+                destination_path = shutil.copy(image, images_folder)
+                shutil.move(destination_path,new_file_name)
 
-def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, notes:str=""):
+def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
     """
     Converts a satasim generated dataset into a coco dataset
 
@@ -331,6 +361,11 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
     """
     path_to_annotation = {}
     satsim_paths = os.listdir(satsim_path)
+
+    filetype="fits"
+    if convert_png:
+        filetype="png"
+
 
     for path in tqdm(satsim_paths, desc="Converting Satsim to COCO"):
         
@@ -409,7 +444,7 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
                     "alt":config_data["geometry"]["site"]["alt"],
                     "lat":config_data["geometry"]["site"]["lat"],
                     "lon":config_data["geometry"]["site"]["lon"],
-                    "file_name": os.path.join("images", f"{image_id}.fits"),
+                    "file_name": os.path.join("images", f"{image_id}.{filetype}"),
                     "original_path": fits_file,
                     "frame_no": frame_no,
                     "date": config_data["geometry"]["time"]}
@@ -434,9 +469,14 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
     ### For one large dataset
     # Save annotation data to corresponding train test json
     #Make new data directory
-    data_folder = satsim_path
-    images_folder = os.path.join(data_folder, "images")
-    annotations_folder = os.path.join(data_folder, "annotations")
+    images_folder=os.path.join(silt_dataset_path, "images")
+    annotations_folder=os.path.join(silt_dataset_path, "annotations")
+    if os.path.exists(images_folder) and os.path.isdir(images_folder):
+        shutil.rmtree(images_folder)
+        print(f"Deleted folder: {images_folder}")
+    if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
+        shutil.rmtree(annotations_folder)
+        print(f"Deleted folder: {annotations_folder}")
     os.makedirs(images_folder, exist_ok=True)
     os.makedirs(annotations_folder, exist_ok=True)
 
@@ -460,6 +500,25 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
         compress_data(path_to_annotation.keys(), os.path.join(images_folder, "compressed_fits.zip"))
     else:
         for image in tqdm(path_to_annotation.keys(), desc="Copying images", total=len(path_to_annotation.keys())):
-            basename = os.path.basename(image)
-            shutil.copy(image, images_folder)
-            shutil.move(os.path.join(images_folder, basename), os.path.join(images_folder, str(path_to_annotation[image]["new_id"])+".fits") )
+            new_file_name = os.path.join(images_folder,str(path_to_annotation[image]["new_id"])+f".{filetype}")
+            if convert_png:
+                hdu = fits.open(image)
+                hdul = hdu[0]
+                data = hdul.data
+                if process_func is not None:
+                    data = process_func(data)
+                else: 
+                    data = np.stack([data,data,data], axis=0)
+                    data = (data / 256).astype(np.uint8)
+                data = np.transpose(data, (1,2,0))
+                png = Image.fromarray(data)
+                png.save(new_file_name)
+            else:
+                destination_path = shutil.copy(image, images_folder)
+                shutil.move(destination_path,new_file_name)
+
+
+if __name__ == "__main__":
+    from preprocess_functions import preprocess_fitsV1, preprocess_fitsV2, preprocess_fitsV3
+    silt_dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/PDS-RME04-2024-07-15"
+    silt_to_coco(silt_dataset_path, include_sats=True, include_stars=False, convert_png=True, process_func=preprocess_fitsV3, notes="")
