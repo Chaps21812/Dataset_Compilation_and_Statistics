@@ -71,7 +71,7 @@ class file_path_loader():
 
     def save_db(self):
         self.statistics_file.save(self.statistics_filename)
-        write_count(os.path.join(self.directory, "counts.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
+        write_count(os.path.join(self.directory, "count.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
 
     def delete_files_from_annotation(self, path_series: pd.DataFrame):
         """
@@ -279,9 +279,7 @@ class satsim_path_loader():
                 json_content = self.open_json(annotT)
                 fits_content = self.open_fits(fitsT)
                 hdu = fits_content[0].header
-                data = fits_content[0].data
                 
-                hdu = fits_content[0].header
                 if "TRKMODE" in hdu.keys():
                     if hdu["TRKMODE"] != 'rate':
                         continue

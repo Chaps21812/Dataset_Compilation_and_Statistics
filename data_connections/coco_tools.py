@@ -216,6 +216,9 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         hdu = fits.open(fits_path)
         hdul = hdu[0]
         header = hdul.header
+
+        x_res = json_data["sensor"]["width"]
+        y_res = json_data["sensor"]["height"]
         object_list = json_data["objects"]
         image_id= np.random.randint(0,9223372036854775806)
         annotations = []
@@ -223,40 +226,58 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         for object in object_list:
             if include_sats and object["class_name"] == "Satellite": 
                 #Create coco annotation for one image
+                x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
+                y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
+                width = object["bbox_width"]*x_res
+                height = object["bbox_height"]*y_res
+                x_center = object["x_center"]*x_res
+                y_center = object["y_center"]*y_res
                 annotation = {
                     "id": np.random.randint(0,9223372036854775806),
                     "image_id": image_id,
                     "category_id": object["class_id"],# Originallly class_id-1, not sure why
                     "category_name": object["class_name"],
                     "type": "bbox",
-                    "centroid": [object["x_center"],object["y_center"]],
-                    "bbox": [object["x_center"],object["y_center"],object["bbox_width"],object["bbox_height"]],
-                    "area": object["bbox_width"]*object["bbox_height"],
+                    "centroid": [x_center,y_center],
+                    "bbox": [x1,y1,width,height],
+                    "area": abs(width*height),
                     "iso_flux": object["iso_flux"],
+                    "exposure": header["EXPTIME"],
                     "iscrowd": 0,
-                    "y_min": object["y_center"]-object["bbox_height"]/2,
-                    "x_min": object["x_center"]-object["bbox_width"]/2,
-                    "y_max": object["y_center"]+object["bbox_height"]/2,
-                    "x_max": object["x_center"]+object["bbox_width"]/2,
+                    "y_min": y_center-height/2,
+                    "x_min": x_center-width/2,
+                    "y_max": y_center+height/2,
+                    "x_max": x_center+width/2,
                     }
                 annotations.append(annotation)
 
             if include_stars and object["class_name"] == "Star": 
                 #Create coco annotation for one image
-                width = abs(object["x1"] - object["x2"])
-                height = abs(object["y1"] - object["y2"])
+                dx1 =(object["x2"]-object["x1"])*x_res
+                dy1 =(object["y2"]-object["y1"])*y_res
+                deltax = abs((object["x2"]-object["x1"])*x_res)
+                deltay = abs((object["y2"]-object["y1"])*y_res)
+                minx = np.min([object["x2"], object["x1"]])*x_res
+                miny = np.min([object["y2"], object["y1"]])*y_res
+                x1 = object["x1"]*x_res
+                y1 = object["y1"]*y_res
+                x_center = object["x_center"]*x_res
+                y_center = object["y_center"]*y_res
+
+
                 annotation = {
                     "id": np.random.randint(0,9223372036854775806),
                     "image_id": image_id,
                     "category_id": object["class_id"],# Originallly class_id-1, not sure why
                     "category_name": object["class_name"],
                     "type": "bbox",
-                    "centroid": [object["x_center"],object["y_center"]],
-                    "bbox": [object["x_center"],object["y_center"],width,height],
-                    "area": width*height,
-                    "line": [object["x1"],object["y1"],object["x2"],object["y2"]],
-                    "line_center": [object["x_center"],object["y_center"]],
+                    "centroid": [x_center,y_center],
+                    "bbox": [minx,miny,deltax,deltay],
+                    "area": abs(deltax*deltay),
+                    "line": [x1,y1,dx1,dy1],
+                    "line_center": [x_center,y_center],
                     "iso_flux": object["iso_flux"],
+                    "exposure": header["EXPTIME"],
                     "iscrowd": 0,
                     }
                 annotations.append(annotation)
@@ -334,6 +355,9 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 hdu = fits.open(image)
                 hdul = hdu[0]
                 data = hdul.data
+                if data is None or data.size==0:
+                    print(f"{new_file_name} failed to save")
+                    continue
                 if process_func is not None:
                     data = process_func(data)
                 else: 
@@ -385,25 +409,36 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
                 data = json_data["data"]
                 image_id= np.random.randint(0,9223372036854775806)
                 annotations = []
+                x_res = json_data["sensor"]["width"]
+                y_res = json_data["sensor"]["height"]
+
+                
                 #Process all detected objects
                 for object in object_list:
                     if include_sats and object["class_name"] == "Satellite": 
                         #Create coco annotation for one image
+                        x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
+                        y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
+                        width = object["bbox_width"]*x_res
+                        height = object["bbox_height"]*y_res
+                        x_center = object["x_center"]*x_res
+                        y_center = object["y_center"]*y_res
+
                         annotation = {
                             "id": np.random.randint(0,9223372036854775806),
                             "image_id": image_id,
                             "category_id": object["class_id"],# Originallly class_id-1, not sure why
                             "category_name": object["class_name"],
                             "type": "bbox",
-                            "centroid": [object["x_center"],object["y_center"]],
-                            "bbox": [object["x_center"],object["y_center"],object["bbox_width"],object["bbox_height"]],
-                            "area": object["bbox_width"]*object["bbox_height"],
+                            "centroid": [x_center ,y_center ],
+                            "bbox": [x1 ,y1 ,width ,height ],
+                            "area": abs(width *height) ,
                             "iscrowd": 0,
                             "snr": object["snr"],
-                            "y_min": object["y_min"],
-                            "x_min": object["x_min"],
-                            "y_max": object["y_max"],
-                            "x_max": object["x_max"],
+                            "y_min": object["y_min"]*y_res ,
+                            "x_min": object["x_min"]*x_res ,
+                            "y_max": object["y_max"]*y_res ,
+                            "x_max": object["x_max"]*x_res ,
                             "source": object["source"],
                             "magnitude": object["magnitude"],
                             }
@@ -411,22 +446,36 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
 
                     if include_stars and object["class_name"] == "Star": 
                         #Create coco annotation for one image
+                        dx1 = (object["x_end"]-object["x_start"])*x_res
+                        dy1 = (object["y_end"]-object["y_start"])*y_res
+                        x1 = object["x_start"]*x_res
+                        y1 = object["y_start"]*y_res
+                        width = object["bbox_width"]*x_res
+                        height = object["bbox_height"]*y_res
+                        x_center = object["x_center"]*x_res
+                        y_center = object["y_center"]*y_res
+
+                        deltax = abs((object["x2"]-object["x1"])*x_res)
+                        deltay = abs((object["y2"]-object["y1"])*y_res)
+                        minx = np.min([object["x2"], object["x1"]])*x_res
+                        miny = np.min([object["y2"], object["y1"]])*y_res
+
                         annotation = {
                             "id": np.random.randint(0,9223372036854775806),
                             "image_id": image_id,
                             "category_id": object["class_id"],# Originallly class_id-1, not sure why
                             "category_name": object["class_name"],
                             "type": "line",
-                            "centroid": [object["x_center"],object["y_center"]],
-                            "bbox": [object["x_center"],object["y_center"],object["bbox_width"],object["bbox_height"]],
-                            "area": object["bbox_width"]*object["bbox_height"],
-                            "line": [object["x_start"],object["y_start"],object["x_end"],object["y_end"]],
-                            "line_center": [object["x_mid"],object["y_mid"]],
+                            "centroid": [x_center ,y_center ],
+                            "bbox": [minx,miny ,deltax ,deltay ],
+                            "area": abs(width *height) ,
+                            "line": [x1,y1,dx1,dy1],
+                            "line_center": [object["x_mid"]*x_res ,object["y_mid"]*y_res ],
                             "iscrowd": 0,
-                            "y_min": object["y_min"],
-                            "x_min": object["x_min"],
-                            "y_max": object["y_max"],
-                            "x_max": object["x_max"],
+                            "y_min": object["y_min"]*y_res ,
+                            "x_min": object["x_min"]*x_res ,
+                            "y_max": object["y_max"]*y_res ,
+                            "x_max": object["x_max"]*x_res ,
                             "source": object["source"],
                             "magnitude": object["magnitude"],
                             }
@@ -519,6 +568,7 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
 
 
 if __name__ == "__main__":
-    from preprocess_functions import preprocess_fitsV1, preprocess_fitsV2, preprocess_fitsV3
-    silt_dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/PDS-RME04-2024-07-15"
-    silt_to_coco(silt_dataset_path, include_sats=True, include_stars=False, convert_png=True, process_func=preprocess_fitsV3, notes="")
+    from preprocess_functions import channel_mixture, adaptiveIQR, zscale
+    silt_dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/RME03AllStar/"
+    # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
+    silt_to_coco(silt_dataset_path, include_sats=False, include_stars=True, convert_png=True, process_func=zscale, notes="Z Scaled Initial Dataset for testing")

@@ -43,7 +43,7 @@ def _adaptive_iqr(fits_image:np.ndarray, bkg_subtract:bool=True, verbose:bool=Fa
         temp_image[temp_image < 0] = 0
         scaled_data = np.log1p(temp_image)
         #Metric to optimize, currently it is prominence
-        contrast = (np.max(scaled_data[scaled_data > 0])+np.mean(scaled_data[scaled_data > 0]))/2-np.median(scaled_data[scaled_data > 0])
+        contrast = (np.max(scaled_data)+np.mean(scaled_data))/2-np.median(scaled_data)
         percentiles.append(percentile)
         contrasts.append(contrast)
 
@@ -54,6 +54,8 @@ def _adaptive_iqr(fits_image:np.ndarray, bkg_subtract:bool=True, verbose:bool=Fa
             best_percentile = percentile
         if verbose: print("|    {:.2f}   |   {:.2f}   |".format(percentile,contrast))
     if verbose: print("Best percentile): {}".format(best_percentile))
+    if best_image is None:
+        return fits_image
     return best_image
 
 def _zscale(image:np.ndarray, contrast:float=.5) -> np.ndarray:
@@ -91,3 +93,12 @@ def zscale(data:np.ndarray) -> np.ndarray:
     zscaled = (zscaled * 255).astype(np.uint8)
 
     return np.stack([zscaled, zscaled, zscaled], axis=0)
+
+
+if __name__=="__main__":
+        from coco_tools import silt_to_coco, satsim_to_coco, merge_coco
+        from preprocess_functions import channel_mixture, adaptiveIQR, zscale
+
+        Process_pathE = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/PDS-RME04-2024-05-07"
+        final_destination_path = "/mnt/c/Users/david.chaparro/Documents/data/ZScaledRME03AllStar"
+        silt_to_coco(Process_pathE, include_sats=True, include_stars=False, convert_png=True, process_func=channel_mixture, notes="Channel Mixture of Adaptive IQR, raw, and zscaled. ")
