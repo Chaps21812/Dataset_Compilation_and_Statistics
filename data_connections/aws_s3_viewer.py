@@ -49,9 +49,15 @@ class S3Client:
     def _create_annotation_mapping(self) -> dict:
         for annotation_filename, annot_full_path in self.annotation_filename_to_path.items():
             fits_file = annotation_filename.replace(".json", ".fits")
-            fits_full_path = self.fits_filename_to_path[fits_file]
-            try: self.annotation_to_fits[annot_full_path] = fits_full_path
-            except KeyError: self.errors += 1
+            if fits_file in self.fits_filename_to_path:
+                fits_full_path = self.fits_filename_to_path[fits_file]
+            else:
+                self.errors +=1
+                continue
+
+            self.annotation_to_fits[annot_full_path] = fits_full_path
+            # try: self.annotation_to_fits[annot_full_path] = fits_full_path
+            # except KeyError: self.errors += 1
         return self.annotation_to_fits
 
     def download_annotation(self, annotation_path:str) -> dict:

@@ -6,6 +6,63 @@ from astropy.io import fits
 from astropy.visualization import ZScaleInterval
 import numpy as np
 
+
+def _iqr_clip(x, threshold=5.0):
+    """
+    IQR-Clip normalization: Robust contrast normalization with hard clipping.
+    
+    Args:
+        x (np.ndarray): Grayscale image, shape (H, W)
+    
+    Returns:
+        np.ndarray: Normalized and clipped image, same shape, dtype float32
+    """
+    x = x.astype(np.float32)
+    q1 = np.percentile(x, 25)
+    q2 = np.percentile(x, 50)
+    q3 = np.percentile(x, 75)
+    iqr = q3 - q1
+
+    # Normalize relative to the median (q2)
+    x_norm = (x - q2) / (iqr + 1e-8)
+
+    # Clip values beyond ±5 IQR
+    x_clipped = np.clip(x_norm, -threshold, threshold)
+
+    return x_clipped
+
+def _iqr_log(x, threshold=5.0):
+    """
+    IQR-Log normalization: IQR-based normalization followed by log compression of outliers.
+    
+    Args:
+        x (np.ndarray): Grayscale image, shape (H, W)
+    
+    Returns:
+        np.ndarray: Soft-clipped image using log transform for values > ±5 IQR
+    """
+    x = x.astype(np.float32)
+    q1 = np.percentile(x, 25)
+    q2 = np.percentile(x, 50)
+    q3 = np.percentile(x, 75)
+    iqr = q3 - q1
+
+    # Normalize relative to the median (q2)
+    x_soft = (x - q2) / (iqr + 1e-8)
+
+    # Apply log transformation to soft-clip tails
+    threshold = 5.0
+
+    # Positive tail
+    over = x_soft > threshold
+    x_soft[over] = threshold + np.log1p(x_soft[over] - threshold)
+
+    # Negative tail
+    under = x_soft < -threshold
+    x_soft[under] = -threshold - np.log1p(-x_soft[under] - threshold)
+
+    return x_soft
+
 def _adaptive_iqr(fits_image:np.ndarray, bkg_subtract:bool=True, verbose:bool=False) -> np.ndarray:
     '''
     Performs Log1P contrast enhancement. Searches for the highest contrast image and enhances stars.
@@ -19,13 +76,6 @@ def _adaptive_iqr(fits_image:np.ndarray, bkg_subtract:bool=True, verbose:bool=Fa
 
     Output: A numpy array of shape (2, N) where N is the number of stars extracted. 
     '''  
-
-    if bkg_subtract:
-        sigma_clip = SigmaClip(sigma=3.0)
-        bkg_estimator = MedianBackground()
-        bkg = Background2D(fits_image, (32, 32), filter_size=(3, 3),
-                        sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
-        fits_image = fits_image-bkg.background
 
     if verbose:
         print("| Percentile | Contrast |")
@@ -70,15 +120,86 @@ def _minmax_scale(arr:np.ndarray) -> np.ndarray:
         return np.zeros_like(arr, dtype=float)  # Avoid division by zero
     return (arr - arr_min) / (arr_max - arr_min)
 
-def adaptiveIQR(data:np.ndarray) -> np.ndarray:
+def _background_subtract(data:np.ndarray) -> np.ndarray:
+    W = data.shape[0]
+    H = data.shape[1]
 
+    kernel_size_x = int(W/16)
+    kernel_size_y = int(H/16)
+    if kernel_size_x %2 == 0: kernel_size_x +=1
+    if kernel_size_y %2 == 0: kernel_size_y +=1
+
+    sigma_clip = SigmaClip(sigma=3.0)
+    bkg_estimator = MedianBackground()
+    bkg = Background2D(data, (int(W/4), int(H/4)), filter_size=(kernel_size_x, kernel_size_y),
+                    sigma_clip=sigma_clip, bkg_estimator=bkg_estimator)
+    data = data-bkg.background
+    return data
+
+def _median_row_subtraction(img):
+    """
+    Subtracts the median from each row and adds back the global median.
+
+    Args:
+        img (np.ndarray): Input image of shape (H, W).
+
+    Returns:
+        np.ndarray: Processed image of shape (H, W), dtype float32.
+    """
+    img = img.astype(np.float32)
+    global_median = np.median(img)
+    row_medians = np.median(img, axis=1, keepdims=True)
+    result = img - row_medians + global_median
+    return result
+
+def _median_column_subtraction(img):
+    """
+    Subtracts the median from each column and adds back the global median.
+
+    Args:
+        img (np.ndarray): Input image of shape (H, W).
+
+    Returns:
+        np.ndarray: Processed image of shape (H, W), dtype float32.
+    """
+    img = img.astype(np.float32)
+    global_median = np.median(img)
+    col_medians = np.median(img, axis=0, keepdims=True)
+    result = img - col_medians + global_median
+    return result
+
+def adaptiveIQR(data:np.ndarray) -> np.ndarray:
     contrast_enhance = _adaptive_iqr(data)
     contrast_enhance = (_minmax_scale(contrast_enhance)*255).astype(np.uint8)
 
     return np.stack([contrast_enhance, contrast_enhance, contrast_enhance], axis=0)
 
-def channel_mixture(data:np.ndarray) -> np.ndarray:
+def zscale(data:np.ndarray) -> np.ndarray:
+    zscaled = _zscale(data)
+    zscaled = (zscaled * 255).astype(np.uint8)
 
+    return np.stack([zscaled, zscaled, zscaled], axis=0)
+
+def iqr_clipped(data, threshold=5) -> np.ndarray:
+    data = _iqr_clip(data, threshold)
+    data = (_minmax_scale(data)*255).astype(np.uint8)
+    return np.stack([data]*3, axis=0)
+
+def iqr_log(data, threshold=5) -> np.ndarray:
+    data = _iqr_log(data, threshold)
+    data = (_minmax_scale(data)*255).astype(np.uint8)
+    return np.stack([data]*3, axis=0)
+
+def channel_mixture_A(data:np.ndarray) -> np.ndarray:
+    zscaled = _zscale(data)
+    zscaled = (zscaled * 255).astype(np.uint8)
+    contrast_enhance = _iqr_clip(data)
+    contrast_enhance = (_minmax_scale(contrast_enhance)*255).astype(np.uint8)
+
+    data = (data / 255).astype(np.uint8)
+    return np.stack([data, contrast_enhance, zscaled], axis=0)
+
+def channel_mixture_B(data:np.ndarray) -> np.ndarray:
     zscaled = _zscale(data)
     zscaled = (zscaled * 255).astype(np.uint8)
     contrast_enhance = _adaptive_iqr(data)
@@ -87,13 +208,17 @@ def channel_mixture(data:np.ndarray) -> np.ndarray:
     data = (data / 255).astype(np.uint8)
     return np.stack([data, contrast_enhance, zscaled], axis=0)
 
-def zscale(data:np.ndarray) -> np.ndarray:
-
+def channel_mixture_C(data:np.ndarray) -> np.ndarray:
     zscaled = _zscale(data)
     zscaled = (zscaled * 255).astype(np.uint8)
+    contrast_enhance = _iqr_log(data)
+    contrast_enhance = (_minmax_scale(contrast_enhance)*255).astype(np.uint8)
 
-    return np.stack([zscaled, zscaled, zscaled], axis=0)
+    data = (data / 255).astype(np.uint8)
+    return np.stack([data, contrast_enhance, zscaled], axis=0)
 
+def raw_file(data: np.ndarray) -> np.ndarray:
+    return  np.stack([data/65535]*3, axis=0)
 
 if __name__=="__main__":
         from coco_tools import silt_to_coco, satsim_to_coco, merge_coco
