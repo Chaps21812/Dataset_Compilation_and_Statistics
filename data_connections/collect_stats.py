@@ -79,6 +79,9 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
 
     sample_attributes["filename"] = json_content["file"]["filename"]
     sample_attributes["id_sensor"] = json_content["file"]["id_sensor"]
+    sample_attributes["QA"] = json_content["approved"]
+    sample_attributes["label_created"] = json_content["created"]
+    sample_attributes["label_updated"] = json_content["updated"]
     # sample_attributes["too_few_stars"] = json_content["too_few_stars"]
     # sample_attributes["empty_image"] = json_content["empty_image"]
     sample_attributes["num_objects"] = len(json_content["objects"])
