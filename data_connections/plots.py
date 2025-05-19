@@ -512,6 +512,49 @@ def plot_all_annotations(image: np.ndarray, annotations: list, img_size: tuple, 
         # print(f"Plot saved to: {full_path}")
     plt.close()
 
+def plot_single_annotation(image: np.ndarray, bbox_old:tuple, bbox_new:tuple, title:str):
+    """
+    Plots an image with all annotations.
+
+    Args:
+        image (np.ndarray): The image to display.
+        annotations (list): List of annotation dictionaries.
+    """
+    # Plot
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(z_scale_image(image), cmap='gray')
+
+    # Draw all annotations
+    rect = patches.Rectangle(
+        (bbox_new[0], bbox_new[1]),
+        bbox_new[2],
+        bbox_new[3],
+        linewidth=2,
+        edgecolor='green',
+        facecolor='none'
+    )
+    ax.add_patch(rect)
+    ax.plot(bbox_new[0]+bbox_new[2]/2, bbox_new[1]+bbox_new[3]/2, '.', color="green", alpha=.5)
+    # Draw all annotations
+    rect = patches.Rectangle(
+        (bbox_old[0], bbox_old[1]),
+        bbox_old[2],
+        bbox_old[3],
+        linewidth=2,
+        edgecolor='red',
+        facecolor='none'
+    )
+    ax.add_patch(rect)
+    ax.plot(bbox_old[0]+bbox_old[2]/2, bbox_old[1]+bbox_old[3]/2, '.', color="red", alpha=.5)
+    # Style
+    ax.set_title(f"Adjusted Annotation: {title}")
+    ax.set_axis_off()
+    # ax.invert_yaxis()  # Invert y-axis to match the original image orientation
+    plt.xlim(bbox_old[0]-50, bbox_old[0]+bbox_old[2]+50)
+    plt.ylim(bbox_old[1]-50, bbox_old[1]+bbox_old[3]+50)
+    plt.tight_layout()
+    plt.show()
+
 def z_scale_image(image:np.ndarray) -> np.ndarray:
     norm = ZScaleInterval(contrast=0.2)
     zscaled_data = norm(image)

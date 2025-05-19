@@ -4,8 +4,12 @@ import os
 import json
 from astropy.io import fits
 from tqdm import tqdm
-from collect_stats import collect_stats, collect_satsim_stats
+from collect_stats import collect_stats, collect_satsim_stats, find_new_centroid
 from documentation import write_count
+from plots import plot_single_annotation
+import matplotlib.pyplot as plt
+from IPython.display import clear_output
+import shutil
 
 class PickleSerializable:
     def save(self, filename):
@@ -40,6 +44,18 @@ class file_path_loader():
         self.annotation_path = os.path.join(self.directory, "raw_annotation")
         self.fits_file_path = os.path.join(self.directory, "raw_fits")
         self.update_annotation_to_fits()
+
+    def clear_cache(self):
+        pathA = os.path.join(self.directory, "annotations")
+        pathB = os.path.join(self.directory, "images")
+        if os.path.exists(pathA):
+            shutil.rmtree(pathA)
+            print(f"Removed: {pathA}")
+        if os.path.exists(pathB):
+            shutil.rmtree(pathB)
+            print(f"Removed: {pathB}")
+        
+        
 
     def update_annotation_to_fits(self):
         self.annotations = os.listdir(self.annotation_path)
@@ -159,6 +175,52 @@ class file_path_loader():
     def __len__(self):
         return len(self.statistics_file.sample_attributes)
 
+    def correct_annotations(self):
+        for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
+            json_path = annotation
+            fits_path = fits_pat
+            title = os.path.basename(annotation)
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            for j,box in enumerate(data["objects"]):
+                if len(data["objects"]) >=2:
+                    print("2")
+                x_corner = box["x_min"]*image.shape[1]
+                y_corner = box["y_min"]*image.shape[0]
+                width = (box["x_max"]-box["x_min"])*image.shape[1]
+                height = (box["y_max"]-box["y_min"])*image.shape[0]
+
+                original_bbox = (x_corner, y_corner, width, height)
+                new_bbox = find_new_centroid(image, original_bbox)
+                plot_single_annotation(image, original_bbox, new_bbox, title)
+
+                current_input = input("Keep New Annotation? [Enter any letter for yes]: ")
+                plt.clf()   # Clears the current figure
+                plt.cla()   # Clears the current axes (optional)
+                plt.close()
+                clear_output(wait=True)
+                if current_input:
+                    new_bbox = (new_bbox[0]/image.shape[1], new_bbox[1]/image.shape[0], new_bbox[2]/image.shape[1], new_bbox[3]/image.shape[0])
+                    data["objects"][j]["x_min"] = new_bbox[0]
+                    data["objects"][j]["y_min"] = new_bbox[1]
+                    data["objects"][j]["x_max"] = new_bbox[0]+new_bbox[2]
+                    data["objects"][j]["y_max"] = new_bbox[1]+new_bbox[3]
+                    data["objects"][j]["x_center"] = (new_bbox[0]+new_bbox[2]/2)
+                    data["objects"][j]["y_center"] = (new_bbox[1]+new_bbox[3]/2)
+                    data["objects"][j]["bbox_width"] = new_bbox[2]
+                    data["objects"][j]["bbox_height"] = new_bbox[3]
+
+            # Save the updated JSON back to the same file
+            with open(json_path, 'w') as f:
+                json.dump(data, f, indent=4)
+        self.update_annotation_to_fits()
+        self.recalculate_statistics()
+
 
 class satsim_path_loader():
     def __init__(self, dataset_path:str):
@@ -175,7 +237,17 @@ class satsim_path_loader():
             self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory, stats_files[0]))
             self.statistics_filename = os.path.join(self.directory,stats_files[0])
         self.update_annotation_to_fits()
-
+    
+    def clear_cache(self):
+        pathA = os.path.join(self.directory, "annotations")
+        pathB = os.path.join(self.directory, "images")
+        if os.path.exists(pathA):
+            shutil.rmtree(pathA)
+            print(f"Removed: {pathA}")
+        if os.path.exists(pathB):
+            shutil.rmtree(pathB)
+            print(f"Removed: {pathB}")
+            
     def update_annotation_to_fits(self):
         folders = [name for name in os.listdir(self.directory) if os.path.isdir(os.path.join(self.directory, name))]
         if "annotations" in folders: folders.remove("annotations")
@@ -305,6 +377,10 @@ class satsim_path_loader():
 
 
 if __name__ == "__main__":
-    satsim_path = "/mnt/c/Users/david.chaparro/Documents/Repos/SatSim/output"
-    local_satsim = satsim_path_loader(satsim_path)
+    # satsim_path = "/mnt/c/Users/david.chaparro/Documents/Repos/SatSim/output"
+    # local_satsim = satsim_path_loader(satsim_path)
+
+    path="/home/davidchaparro/Repos/Dataset_Compilation_and_Statistics/data/dummydata"
+    local = file_path_loader(path)
+    local.correct_annotations()
 

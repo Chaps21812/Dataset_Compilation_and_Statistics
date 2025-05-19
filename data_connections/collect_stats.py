@@ -169,7 +169,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         
         detection_dict["local_prominence"] = (signal-local_minimum)/(local_std+1*10**-5)
         detection_dict["local_snr"] = (signal-local_median)/(local_std+1*10**-5)
-        detection_dict["max_signal_diff"] = (local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
+        detection_dict["max_signal_diff"] = 1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
         detection_dict["global_snr"] = (signal-local_median)/sample_attributes["std_intensity"]
         
         object_attributes.append(detection_dict)
@@ -199,8 +199,6 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
 
 
     return sample_attributes, object_attributes
-
-
 
 def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple[dict,dict]:
     sample_attributes = {}
@@ -337,3 +335,132 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
 
 
     return sample_attributes, object_attributes
+
+def find_new_centroid(image, bbox, padding=20):
+    x_min = bbox[0]
+    y_min = bbox[1]
+    x_max = bbox[0]+bbox[2]
+    y_max = bbox[1]+bbox[3]
+
+    y_start = max(0, y_min - padding)
+    y_end   = min(image.shape[0], y_max + padding)
+    x_start = max(0, x_min - padding)
+    x_end   = min(image.shape[1], x_max + padding)
+
+    best_max_signal_diff = 0
+    best_bbox = bbox
+    for x in range(int(x_end-x_start)):
+        for y in range(int(y_end-y_start)):
+            new_bbox = (x_start+x, y_start+y, bbox[2],bbox[3]) ### THIS IS WHERE YOU LEFT OFF PLEASE CALCULATE WHERE THE NEW CENTER IS
+            max_signal_diff = _calculate_max_signal_diff(image, new_bbox, padding)
+            if max_signal_diff > best_max_signal_diff:
+                best_bbox = new_bbox
+                best_max_signal_diff = max_signal_diff
+    best_bbox_x_center = best_bbox[0]+best_bbox[2]/2
+    best_bbox_y_center = best_bbox[1]+best_bbox[3]/2
+    num_above_threshold = 0
+    for width in range(int(max(bbox[2],bbox[3])+2*padding)):
+        new_bbox=(best_bbox_x_center-width/2, best_bbox_y_center-width/2, width+1, width+1)
+        width_measurement = _calculate_intensity(image, new_bbox, 50)
+        if width_measurement:
+            best_bbox = new_bbox
+            break
+    return best_bbox
+
+def _calculate_intensity(image,bbox, padding): 
+    x_min = bbox[0]
+    y_min = bbox[1]
+    x_max = bbox[0]+bbox[2]
+    y_max = bbox[1]+bbox[3]
+
+    y_start1 = max(0, y_min - padding)
+    y_end1   = min(image.shape[0], y_max + padding)
+    x_start1 = max(0, x_min - padding)
+    x_end1   = min(image.shape[1], x_max + padding)
+
+    y_start2 = max(0, y_min)
+    y_end2   = min(image.shape[0], y_max)
+    x_start2 = max(0, x_min)
+    x_end2   = min(image.shape[1], x_max)
+
+    window1 = image[int(y_start1):int(y_end1),int(x_start1):int(x_end1)]
+    window2 = image[int(y_start2):int(y_end2),int(x_start2):int(x_end2)]
+
+
+    #### Attempted algorithm to resize square
+    # padded_local_max = np.max(window1)
+    # padded_local_min = np.min(window1)
+
+    # max_signal_diff = 1-(padded_local_max-window2)/(padded_local_max-padded_local_min+1*10**-5)
+    # minimum_max_signal_diff = np.min(max_signal_diff)
+
+    # if minimum_max_signal_diff<.1:
+    #     return True
+    # else:
+    #     return False
+
+    signal = np.min(window2)
+    q1 = np.percentile(window1, 15)
+    q2 = np.percentile(window1, 50)
+    q3 = np.percentile(window1, 75)
+    local_std = np.std(window1)
+    mean = np.mean(window1)
+    local_median = np.median(window1)
+
+    if signal<q1:
+        return True
+    else:
+        return False
+
+def _calculate_num_high_pixels(image, new_bbox, bbox, padding=20):
+    x_min = bbox[0]
+    y_min = bbox[1]
+    x_max = bbox[0]+bbox[2]
+    y_max = bbox[1]+bbox[3]
+    y_start1 = max(0, y_min - padding)
+    y_end1   = min(image.shape[0], y_max + padding)
+    x_start1 = max(0, x_min - padding)
+    x_end1   = min(image.shape[1], x_max + padding)
+
+    window1 = image[int(y_start1):int(y_end1),int(x_start1):int(x_end1)]
+    q3 = np.percentile(window1, 75)
+
+    x_min = new_bbox[0]
+    y_min = new_bbox[1]
+    x_max = new_bbox[0]+new_bbox[2]
+    y_max = new_bbox[1]+new_bbox[3]
+    y_start2 = max(0, y_min)
+    y_end2   = min(image.shape[0], y_max)
+    x_start2 = max(0, x_min)
+    x_end2   = min(image.shape[1], x_max)
+
+    window2 = image[int(y_start2):int(y_end2),int(x_start2):int(x_end2)]
+    num_above_q3 = np.sum(window2 > q3)
+
+    return num_above_q3
+
+def _calculate_max_signal_diff(image, bbox, padding=20):
+    x_min = bbox[0]
+    y_min = bbox[1]
+    x_max = bbox[0]+bbox[2]
+    y_max = bbox[1]+bbox[3]
+    x_center = bbox[0]+bbox[2]/2
+    y_center = bbox[1]+bbox[3]/2
+    y_center = max(0, y_center)
+    y_center   = min(image.shape[0]-1, y_center)
+    x_center = max(0, x_center )
+    x_center   = min(image.shape[1]-1, x_center )
+
+    signal = image[int(y_center), int(x_center)]
+
+    y_start = max(0, y_min - padding)
+    y_end   = min(image.shape[0], y_max + padding)
+    x_start = max(0, x_min - padding)
+    x_end   = min(image.shape[1], x_max + padding)
+
+    window = image[int(y_start):int(y_end),int(x_start):int(x_end)]
+    local_minimum = np.min(window)
+    local_maximum = np.max(window)
+
+    max_signal_diff = 1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
+    return max_signal_diff
