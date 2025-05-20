@@ -9,6 +9,7 @@ from pandas_statistics import file_path_loader
 from tqdm import tqdm
 from astropy.io import fits
 from PIL import Image
+from collect_stats import collect_stats, collect_satsim_stats
 
 def merge_categories(category_list:list):
     name_to_category = {}
@@ -214,9 +215,11 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         with open(annotation_path, 'r') as f:
             json_data = json.load(f)
         hdu = fits.open(fits_path)
+
+        sample_attributes, object_attributes = collect_stats(json_data, hdu, padding=20)
+
         hdul = hdu[0]
         header = hdul.header
-
         x_res = json_data["sensor"]["width"]
         y_res = json_data["sensor"]["height"]
         object_list = json_data["objects"]
@@ -249,7 +252,6 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "y_max": y_center+height/2,
                     "x_max": x_center+width/2,
                     }
-                annotations.append(annotation)
 
             if include_stars and object["class_name"] == "Star": 
                 #Create coco annotation for one image
@@ -280,7 +282,10 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "exposure": header["EXPTIME"],
                     "iscrowd": 0,
                     }
-                annotations.append(annotation)
+
+            other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+            annotation = _merge_dicts(annotation,other_annotation_attributes )
+            annotations.append(annotation)
 
         image = {
             "id": image_id,
@@ -296,6 +301,8 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "file_name": os.path.join("images", f"{image_id}.{filetype}"),
             "original_path": fits_path,
             "date": header["DATE-OBS"]}
+        
+        image = _merge_dicts(image, sample_attributes)
 
         #Add coco image to list of files
         path_to_annotation[fits_path] = {"annotation":annotations, "image":image, "new_id":image_id}
@@ -566,9 +573,21 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
                 destination_path = shutil.copy(image, images_folder)
                 shutil.move(destination_path,new_file_name)
 
+def _merge_dicts(dict1:dict, dict2:dict):
+    for key, value in dict2.items():
+        if key in dict1:
+            continue
+        else:
+            dict1[key] = value
+    return dict1
+
+def _find_dict(correlation_id, annotation_dict:list):
+    for dict in annotation_dict:
+        if dict["correlation_id"] == correlation_id:
+            return dict
 
 if __name__ == "__main__":
-    from preprocess_functions import channel_mixture, adaptiveIQR, zscale
-    silt_dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/RME03AllStar/"
+    from preprocess_functions import adaptiveIQR, zscale
+    silt_dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset_Statistics/data/RME03AllStar"
     # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
     silt_to_coco(silt_dataset_path, include_sats=False, include_stars=True, convert_png=True, process_func=zscale, notes="Z Scaled Initial Dataset for testing")

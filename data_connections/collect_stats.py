@@ -111,6 +111,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     streak_lengths = []
     for object in json_content["objects"]:
         detection_dict = {}
+        detection_dict["correlation_id"] = object["correlation_id"]
         detection_dict["flux"] = object['iso_flux']
 
         x_cord= object["x_center"]*x_res

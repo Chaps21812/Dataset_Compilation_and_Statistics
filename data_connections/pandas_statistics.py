@@ -55,8 +55,6 @@ class file_path_loader():
             shutil.rmtree(pathB)
             print(f"Removed: {pathB}")
         
-        
-
     def update_annotation_to_fits(self):
         self.annotations = os.listdir(self.annotation_path)
         self.fits_files = os.listdir(self.fits_file_path)
@@ -221,7 +219,6 @@ class file_path_loader():
         self.update_annotation_to_fits()
         self.recalculate_statistics()
 
-
 class satsim_path_loader():
     def __init__(self, dataset_path:str):
         self.directory = dataset_path
@@ -373,7 +370,6 @@ class satsim_path_loader():
 
     def __len__(self):
         return len(self.statistics_file.sample_attributes)
-
 
 
 if __name__ == "__main__":
