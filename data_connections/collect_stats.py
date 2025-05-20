@@ -96,8 +96,12 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
 
     # date_format = "%Y-%m-%dT%H:%M:%S.%f%z"
     # date_object = datetime.strptime(json_content["created"], date_format)
-    date_format = "%Y-%m-%dT%H:%M:%S.%f"
-    date_object = datetime.strptime(hdu["DATE-OBS"], date_format)
+    try:
+        date_format = "%Y-%m-%dT%H:%M:%S.%f"
+        date_object = datetime.strptime(hdu["DATE-OBS"], date_format)
+    except ValueError:
+        date_format = "%Y-%m-%dT%H:%M:%S.%f%z"
+        date_object = datetime.strptime(hdu["DATE-OBS"], date_format)
     sample_attributes["dates"] = date_object.strftime("%Y-%m-%d")
     sample_attributes["times"] = date_object.strftime("%H:%M:%S")
 
@@ -113,7 +117,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         y_cord= object["y_center"]*y_res
         signal = data[int(y_cord), int(x_cord)]
 
-        if object['class_name']=="Satellite": 
+        if object['class_name']=="Satellite" and object["type"] != "line": 
             sats+=1
             detection_dict["filename"] = json_content["file"]["filename"]
             detection_dict["object_type"] = object['class_name']
@@ -133,7 +137,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
             y_max = max(detection_dict["y_min"], detection_dict["y_max"])*y_res
             y_min = min(detection_dict["y_min"], detection_dict["y_max"])*y_res
 
-        if object['class_name']=="Star": 
+        elif object['class_name']=="Star": 
             stars+=1
             detection_dict["filename"] = json_content["file"]["filename"]
             detection_dict["object_type"] = object['class_name']
@@ -154,7 +158,9 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
             y_min = min(detection_dict["y1"], detection_dict["y2"])*y_res
 
             streak_angles.append(detection_dict["angle"])
-            streak_lengths.append(detection_dict["length"])    
+            streak_lengths.append(detection_dict["length"])
+        else:
+            continue    
 
         y_start = max(0, y_min - padding)
         y_end   = min(data.shape[0], y_max + padding)
