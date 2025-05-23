@@ -6,10 +6,11 @@ from astropy.io import fits
 from tqdm import tqdm
 from collect_stats import collect_stats, collect_satsim_stats, find_new_centroid
 from documentation import write_count
-from plots import plot_single_annotation
+from plots import plot_single_annotation, plot_error_evaluator
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 import shutil
+from datetime import datetime
 
 class PickleSerializable:
     def save(self, filename):
@@ -173,7 +174,7 @@ class file_path_loader():
     def __len__(self):
         return len(self.statistics_file.sample_attributes)
 
-    def correct_annotations(self):
+    def correct_annotations(self, apply_changes:bool=False):
         for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
             json_path = annotation
             fits_path = fits_pat
@@ -202,7 +203,7 @@ class file_path_loader():
                 plt.cla()   # Clears the current axes (optional)
                 plt.close()
                 clear_output(wait=True)
-                if current_input:
+                if current_input and apply_changes:
                     new_bbox = (new_bbox[0]/image.shape[1], new_bbox[1]/image.shape[0], new_bbox[2]/image.shape[1], new_bbox[3]/image.shape[0])
                     data["objects"][j]["x_min"] = new_bbox[0]
                     data["objects"][j]["y_min"] = new_bbox[1]
@@ -218,6 +219,70 @@ class file_path_loader():
                 json.dump(data, f, indent=4)
         self.update_annotation_to_fits()
         self.recalculate_statistics()
+
+    def characterize_errors(self):
+        error_database = PDStatistics_calculator()
+        for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
+            json_path = annotation
+            fits_path = fits_pat
+            bboxes = []
+            properties = {}
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            properties["fits_file"] = data["file"]["filename"]
+            properties["sensor"] = data["file"]["id_sensor"]
+            properties["QA"] = data["approved"]
+            properties["labeler_id"] = data["labeler_id"]
+            properties["request_id"] = data["request_id"]
+            properties["created"] = datetime.strptime(data["created"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["updated"] = datetime.strptime(data["updated"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["num_objects"] = len(data["objects"])
+
+            for j,box in enumerate(data["objects"]):
+                x_corner = box["x_min"]*image.shape[1]
+                y_corner = box["y_min"]*image.shape[0]
+                width = (box["x_max"]-box["x_min"])*image.shape[1]
+                height = (box["y_max"]-box["y_min"])*image.shape[0]
+
+                original_bbox = (x_corner, y_corner, width, height)
+                bboxes.append(original_bbox)
+
+
+            if len(data["objects"]) ==0:
+                plot_error_evaluator(image, [], 0, properties)
+                error = error_input_prompt()
+                properties["error_type"] = error
+                error_database.add_sample_attributes(properties)
+                error_database.save(os.path.join(self.directory, "errors.pkl"))
+                plt.clf()   # Clears the current figure
+                plt.cla()   # Clears the current axes (optional)
+                plt.close()
+                clear_output(wait=True)
+            else: 
+                for index in range(len(data["objects"])):
+                    plot_error_evaluator(image, bboxes, index, properties)
+                    error = error_input_prompt()
+                    properties["error_type"] = error
+                    error_database.add_sample_attributes(properties)
+                    error_database.save(os.path.join(self.directory, "errors.pkl"))
+                    plt.clf()   # Clears the current figure
+                    plt.cla()   # Clears the current axes (optional)
+                    plt.close()
+                    clear_output(wait=True)
+        error_types = ["No Error", "Uncentered Box", "Severely Uncentered Box", "Missed Target", "Blank Box", "Silt Transpose Error", "Occlusion [Edge or star]", "Other", "Unknown"]
+        error_database.sample_attributes['error_type_str'] = error_database.sample_attributes.apply(lambda row: error_types[row['error_type']] if row["error_type"] < len(error_types) else error_types[8], axis=1)
+
+def error_input_prompt():
+    current_input = input("Enter error number: ")
+    if current_input:
+        return int(current_input)
+    else: 
+        return 8
 
 class satsim_path_loader():
     def __init__(self, dataset_path:str):

@@ -173,7 +173,10 @@ def download_UDL_data(aws_directory:str, download_directory:str, Authorization_k
         db.save(os.path.join(download_directory, statistics_filename))
     write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
-    
+def summaraize_s3_data():
+    print("BRUH")
+
+
 if __name__ == "__main__":
     #Enter in the parameters you wish to download
     aws_directory = "third-party-data/PDS-KWAJ01/Satellite/Annotations/"
