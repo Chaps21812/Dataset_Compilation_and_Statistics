@@ -4,7 +4,7 @@ import os
 import json
 from astropy.io import fits
 from tqdm import tqdm
-from collect_stats import collect_stats, collect_satsim_stats, find_new_centroid
+from collect_stats import collect_stats, collect_satsim_stats, find_new_centroid, find_centroid_COM
 from documentation import write_count
 from plots import plot_single_annotation, plot_error_evaluator
 import matplotlib.pyplot as plt
@@ -187,15 +187,14 @@ class file_path_loader():
             image = hdul.data
 
             for j,box in enumerate(data["objects"]):
-                if len(data["objects"]) >=2:
-                    print("2")
                 x_corner = box["x_min"]*image.shape[1]
                 y_corner = box["y_min"]*image.shape[0]
                 width = (box["x_max"]-box["x_min"])*image.shape[1]
                 height = (box["y_max"]-box["y_min"])*image.shape[0]
 
                 original_bbox = (x_corner, y_corner, width, height)
-                new_bbox = find_new_centroid(image, original_bbox)
+                # new_bbox = find_new_centroid(image, original_bbox)
+                new_bbox = find_centroid_COM(image, original_bbox)
                 plot_single_annotation(image, original_bbox, new_bbox, title)
 
                 current_input = input("Keep New Annotation? [Enter any letter for yes]: ")
@@ -441,7 +440,9 @@ if __name__ == "__main__":
     # satsim_path = "/mnt/c/Users/david.chaparro/Documents/Repos/SatSim/output"
     # local_satsim = satsim_path_loader(satsim_path)
 
-    path="/home/davidchaparro/Repos/Dataset_Compilation_and_Statistics/data/dummydata"
-    local = file_path_loader(path)
-    local.correct_annotations()
+    dataset_directory = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset_Statistics/data/KWAJData"
 
+    #Local file handling tool
+    local_files = file_path_loader(dataset_directory)
+    local_files.recalculate_statistics()
+    print(f"Num Samples: {len(local_files)}")

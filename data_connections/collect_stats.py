@@ -3,6 +3,8 @@ from datetime import datetime
 import numpy as np
 from math import atan2
 from plots import plot_image_with_line, z_scale_image
+import cv2
+import matplotlib.pyplot as plt
 
 
 def directed_circular_stats(angles_deg:list) -> tuple[float, float, float]:
@@ -342,6 +344,98 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
 
 
     return sample_attributes, object_attributes
+
+def find_centroid_COM(image, bbox, padding=10):
+    x_min = bbox[0]
+    y_min = bbox[1]
+    x_max = bbox[0]+bbox[2]
+    y_max = bbox[1]+bbox[3]
+
+    y_start = max(0, y_min)
+    y_end   = min(image.shape[0], y_max)
+    x_start = max(0, x_min)
+    x_end   = min(image.shape[1], x_max)
+
+    window1 = image[int(y_start):int(y_end),int(x_start):int(x_end)]
+    median = np.median(window1)/65535
+    stdev = np.std(window1)/65535
+    image_min = np.min(window1)/65535
+
+    min_x = image.shape[0]
+    min_y = image.shape[1]
+    max_x = 0
+    max_y = 0
+
+    count = 0
+
+    total_intensity = 0
+    intensity_by_position_x = 0
+    intensity_by_position_y = 0
+    for x in range(int(x_start)-1, int(x_end)+1):
+        for y in range(int(y_start)-1, int(y_end)+1):
+            intensity = image[int(y),int(x)]/65535
+            if intensity > median+1*stdev:
+                weighted_intensity = (intensity*10)**3
+                intensity_by_position_x += weighted_intensity*x
+                intensity_by_position_y += weighted_intensity*y
+                total_intensity += weighted_intensity
+
+    y_start = max(0, y_min - padding)
+    y_end   = min(image.shape[0], y_max + padding)
+    x_start = max(0, x_min - padding)
+    x_end   = min(image.shape[1], x_max + padding)
+
+    window2 = image[int(y_start):int(y_end),int(x_start):int(x_end)]
+    median = np.median(window2)/65535
+    mean = np.mean(window2)/65535
+    stdev = np.std(window2)/65535
+    image_min = np.min(window2)/65535
+    image_max = np.max(window2)/65535
+
+    max_ratio = 1-(image_max-window2)/(image_max-image_min)
+    stdeviation = (window2-mean)/stdev
+    median_stdeviation = (window2-median)/stdev
+    plt.show()
+
+    fig, ax = plt.subplots(1, 3, figsize=(10, 4))
+
+    im = ax[0].imshow(max_ratio)
+    ax[0].set_title('Maximum Signal Difference')
+    fig.colorbar(im, ax=ax[0])
+
+    im = ax[1].imshow(stdeviation)
+    ax[1].set_title('Mean standard deviation')
+    fig.colorbar(im, ax=ax[1])
+
+    im = ax[2].imshow(median_stdeviation)
+    ax[2].set_title('Median standard deviation')
+    fig.colorbar(im, ax=ax[2])
+
+    plt.tight_layout()
+    plt.show()
+
+
+    for x in range(int(x_start)-1, int(x_end)+1):
+        for y in range(int(y_start)-1, int(y_end)+1):
+            intensity = image[int(y),int(x)]/65535
+            max_signal_diff = 1-(image_max-intensity)/(image_max-image_min)
+            if max_signal_diff > .5 or intensity > median+3*stdev:
+                count +=1
+
+    
+    width = 2*np.sqrt(count/3.14)+1
+                
+    COM_x = intensity_by_position_x/total_intensity
+    COM_y = intensity_by_position_y/total_intensity
+    # QA1_width = max_x-min_x+2
+    # QA1_height = max_y-min_y+2
+    QA1_width = width
+    QA1_height = width
+
+
+    best_bbox = (COM_x-QA1_width/2, COM_y-QA1_height/2, QA1_width,QA1_height) 
+
+    return best_bbox
 
 def find_new_centroid(image, bbox, padding=20):
     x_min = bbox[0]

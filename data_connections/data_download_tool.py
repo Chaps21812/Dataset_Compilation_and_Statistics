@@ -173,8 +173,11 @@ def download_UDL_data(aws_directory:str, download_directory:str, Authorization_k
         db.save(os.path.join(download_directory, statistics_filename))
     write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
-def summaraize_s3_data():
-    print("BRUH")
+def summarize_UDL_data(aws_directory:str):
+    client = S3Client(aws_directory)
+    client.summarize_UDL_data()
+
+
 
 
 if __name__ == "__main__":

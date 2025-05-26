@@ -524,7 +524,9 @@ def plot_single_annotation(image: np.ndarray, bbox_old:tuple, bbox_new:tuple, ti
     """
     # Plot
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(z_scale_image(image), cmap='gray')
+    # ax.imshow(_iqr_log(image), cmap='gray')
+    ax.imshow(image, cmap='gray')
+    padding = 20
 
     # Draw all annotations
     rect = patches.Rectangle(
@@ -552,8 +554,8 @@ def plot_single_annotation(image: np.ndarray, bbox_old:tuple, bbox_new:tuple, ti
     ax.set_title(f"Adjusted Annotation: {title}")
     ax.set_axis_off()
     # ax.invert_yaxis()  # Invert y-axis to match the original image orientation
-    plt.xlim(bbox_old[0]-50, bbox_old[0]+bbox_old[2]+50)
-    plt.ylim(bbox_old[1]-50, bbox_old[1]+bbox_old[3]+50)
+    plt.xlim(bbox_old[0]-padding, bbox_old[0]+bbox_old[2]+padding)
+    plt.ylim(bbox_old[1]-padding, bbox_old[1]+bbox_old[3]+padding)
     plt.tight_layout()
     plt.show()
 
