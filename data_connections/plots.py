@@ -6,6 +6,8 @@ import os
 import re
 from typing import Union
 from astropy.visualization import ZScaleInterval
+import matplotlib.gridspec as gridspec
+from preprocess_functions import _iqr_log
 
 #This code was AI generated. I would love to spend time meticulously making plots, but I think my time is better spent analyzing them rather than adjusting details on a plot. 
 
@@ -522,7 +524,9 @@ def plot_single_annotation(image: np.ndarray, bbox_old:tuple, bbox_new:tuple, ti
     """
     # Plot
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(z_scale_image(image), cmap='gray')
+    # ax.imshow(_iqr_log(image), cmap='gray')
+    ax.imshow(image, cmap='gray')
+    padding = 20
 
     # Draw all annotations
     rect = patches.Rectangle(
@@ -550,8 +554,72 @@ def plot_single_annotation(image: np.ndarray, bbox_old:tuple, bbox_new:tuple, ti
     ax.set_title(f"Adjusted Annotation: {title}")
     ax.set_axis_off()
     # ax.invert_yaxis()  # Invert y-axis to match the original image orientation
-    plt.xlim(bbox_old[0]-50, bbox_old[0]+bbox_old[2]+50)
-    plt.ylim(bbox_old[1]-50, bbox_old[1]+bbox_old[3]+50)
+    plt.xlim(bbox_old[0]-padding, bbox_old[0]+bbox_old[2]+padding)
+    plt.ylim(bbox_old[1]-padding, bbox_old[1]+bbox_old[3]+padding)
+    plt.tight_layout()
+    plt.show()
+
+def plot_error_evaluator(image: np.ndarray, bboxes:tuple, index:int, attributes:dict):
+    """
+    Plots an image with all annotations.
+
+    Args:
+        image (np.ndarray): The image to display.
+        annotations (list): List of annotation dictionaries.
+    """
+
+    fig = plt.figure(figsize=(12, 12))
+    gs = gridspec.GridSpec(2, 2, height_ratios=[2, 1])  # 2 rows, 2 cols
+
+    ax_top = fig.add_subplot(gs[0, :])
+    ax_bl = fig.add_subplot(gs[1, 0])
+    ax_br = fig.add_subplot(gs[1, 1])
+
+    # Plot
+    fig.suptitle("Error Evaluation")
+
+    # Plot the first image
+    ax_top.imshow(_iqr_log(image), cmap='gray')
+    ax_top.set_title(f'Image {attributes["fits_file"]}')
+
+    # Plot the second image
+    ax_bl.imshow(_iqr_log(image), cmap='gray')
+    ax_bl.set_title(f'Annotation')
+
+    # Add text in the third subplot
+    ax_br.axis('off')
+    text = ""
+    for key,value in attributes.items():
+        text = text+f"{key}: {value}\n"
+    ax_br.text(0.01, 0.5, text, va='center', fontsize=12)
+
+    if bboxes:
+        spotlite_box = bboxes[index]
+        rect = patches.Rectangle(
+            (spotlite_box[0], spotlite_box[1]),
+            spotlite_box[2],
+            spotlite_box[3],
+            linewidth=2,
+            edgecolor='red',
+            facecolor='none'
+        )
+        ax_bl.add_patch(rect)
+        ax_bl.plot(spotlite_box[0]+spotlite_box[2]/2, spotlite_box[1]+spotlite_box[3]/2, '.', color="red", alpha=.5)
+        ax_bl.set_xlim(spotlite_box[0]-20, spotlite_box[0]+spotlite_box[2]+20)
+        ax_bl.set_ylim(spotlite_box[1]-20, spotlite_box[1]+spotlite_box[3]+20)
+
+        for bbox in bboxes:
+            # Draw all annotations
+            rect = patches.Rectangle(
+                (bbox[0], bbox[1]),
+                bbox[2],
+                bbox[3],
+                linewidth=2,
+                edgecolor='red',
+                facecolor='none'
+            )
+            ax_top.add_patch(rect)
+            ax_top.plot(bbox[0]+bbox[2]/2, bbox[1]+bbox[3]/2, '.', color="red", alpha=.5)
     plt.tight_layout()
     plt.show()
 

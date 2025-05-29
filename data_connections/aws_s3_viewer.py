@@ -80,6 +80,10 @@ class S3Client:
         # for tuplee in self.basenames.most_common(5):
         #     print(f"Filename: {tuplee[0]}, Count: {tuplee[1]}")
 
+    def summarize_UDL_data(self):
+        for filename, path in tqdm(self.unmatched_annotations.items()):
+            json_content = self.download_annotation(path)
+
 
 
 

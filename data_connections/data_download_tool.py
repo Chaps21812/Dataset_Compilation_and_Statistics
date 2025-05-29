@@ -34,7 +34,6 @@ def download_data(aws_directory:str, download_directory:str, statistics_filename
 
     counter = Counter()
 
-    client.get_data(client.directory)
     for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading and Collecting Statistics"):
     # for annotT,fitsT in client.annotation_to_fits.items():
         sample_attributes = {}
@@ -173,7 +172,13 @@ def download_UDL_data(aws_directory:str, download_directory:str, Authorization_k
         db.save(os.path.join(download_directory, statistics_filename))
     write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
-    
+def summarize_UDL_data(aws_directory:str):
+    client = S3Client(aws_directory)
+    client.summarize_UDL_data()
+
+
+
+
 if __name__ == "__main__":
     #Enter in the parameters you wish to download
     aws_directory = "third-party-data/PDS-KWAJ01/Satellite/Annotations/"
