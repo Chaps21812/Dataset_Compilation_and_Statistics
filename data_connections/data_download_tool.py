@@ -34,7 +34,6 @@ def download_data(aws_directory:str, download_directory:str, statistics_filename
 
     counter = Counter()
 
-    client.get_data(client.directory)
     for annotT,fitsT in tqdm(client.annotation_to_fits.items(), desc="Downloading and Collecting Statistics"):
     # for annotT,fitsT in client.annotation_to_fits.items():
         sample_attributes = {}
