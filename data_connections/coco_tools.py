@@ -227,7 +227,10 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         annotations = []
         #Process all detected objects
         for object in object_list:
-            if include_sats and object["class_name"] == "Satellite": 
+
+            if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
+                continue
+            elif include_sats and object["class_name"] == "Satellite": 
                 #Create coco annotation for one image
                 x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
                 y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
