@@ -460,6 +460,147 @@ class satsim_path_loader():
     def __len__(self):
         return len(self.statistics_file.sample_attributes)
 
+class coco_path_loader():
+    def __init__(self, dataset_path:str):
+        self.directory = dataset_path
+        if len([f for f in os.listdir(self.directory) if f.endswith(".pkl")]) ==0:
+            self.statistics_filename = os.path.join(dataset_path, f"{os.path.basename(dataset_path)}.pkl")
+            self.recalculate_statistics()
+        else:
+            self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory,[f for f in os.listdir(self.directory) if f.endswith(".pkl")][0]))
+            self.statistics_filename = os.path.join(self.directory,[f for f in os.listdir(self.directory) if f.endswith(".pkl")][0])
+        self.annotation_path = os.path.join(self.directory, "annotations")
+        self.png_file_path = os.path.join(self.directory, "images")
+        self.update_annotation_to_png()
+
+    def update_annotation_to_png(self):
+        self.annotations = self.open_json(os.path.join(self.annotation_path, "annotations.json"))
+        self.png_files = os.listdir(self.png_file_path)
+        self.image_id_to_index = {}
+
+        for index, image_dict in self.annotations["images"]:
+            self.image_id_to_index[image_dict["id"]] = index
+        # self.annotations["annotations"]
+        
+    def open_json(self, json_path:str):
+        with open(json_path, 'r') as f:
+            json_content = json.load(f)
+        return json_content
+    
+    def new_db(self):
+        self.statistics_file = PDStatistics_calculator()
+        self.statistics_file.save(self.statistics_filename)
+        print(f"New database created at {self.statistics_filename}")
+
+    def save_db(self):
+        self.statistics_file.save(self.statistics_filename)
+        write_count(os.path.join(self.directory, "count.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
+
+    def save_annotations(self):
+        with open(os.path.join(self.annotation_path, "annotations.json"), 'w') as f:
+            json.dump(self.annotations, f, indent=4)
+
+    def delete_files(self, path_series: pd.DataFrame):
+        ##### TO DO FIX
+        """ 
+        Deletes files from the filesystem given a pandas Series of file paths. AI Generated
+
+        Args:
+            path_series (pd.Series): Series of file paths (as strings).
+        """
+
+        if "image_id" in path_series.columns:
+            unique_images = path_series["image_id"].dropna().unique()
+        else: 
+            unique_images = path_series["id"].dropna().unique()
+
+        self.statistics_file.sample_attributes = self.statistics_file.sample_attributes[~self.statistics_file.sample_attributes["id"].isin(unique_images)].copy()
+        self.statistics_file.annotation_attributes = self.statistics_file.annotation_attributes[~self.statistics_file.annotation_attributes["image_id"].isin(unique_images)].copy()
+
+        # self.statistics_file.annotation_attributes.drop(path_series.index, inplace=True, axis=0)
+        for path in tqdm(path_series["json_path"].dropna(), desc="Deleting files"):
+            fits_path = self.annotation_to_png[path]
+            try:
+                #Deleting annotation path
+                if os.path.isfile(path):
+                    os.remove(path)
+
+                #Deleting Fits path
+                if os.path.isfile(fits_path):
+                    os.remove(fits_path)
+            except Exception as e:
+                print(f"Error deleting {path}: {e}")
+        self.save_db()
+        self.save_annotations()
+    
+    def recalculate_statistics(self):
+        ##### TO DO FIX
+        self.update_annotation_to_png()
+        self.new_db()
+
+        for annotAttrs in tqdm(self.annotations["annotations"], desc="Recalculating Statistics"):
+            try:
+                self.statistics_file.add_annotation_attributes(annotAttrs)
+            except Exception as e:
+                print(f"Error processing annotation {annotAttrs["id"]}: {e}")
+        for imageAttrs in tqdm(self.annotations["images"], desc="Recalculating Statistics"):
+            try:
+                self.statistics_file.add_sample_attributes(imageAttrs)
+            except Exception as e:
+                print(f"Error processing image {imageAttrs["id"]}: {e}")
+        self.save_db()
+
+    def __len__(self):
+        return len(self.statistics_file.sample_attributes)
+
+    def correct_annotations(self):
+        ##### TO DO FIX
+        for annotation, fits_pat in tqdm(self.annotation_to_png.items()):
+            json_path = annotation
+            fits_path = fits_pat
+            title = os.path.basename(annotation)
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            for j,box in enumerate(data["objects"]):
+                if len(data["objects"]) >=2:
+                    print("2")
+                x_corner = box["x_min"]*image.shape[1]
+                y_corner = box["y_min"]*image.shape[0]
+                width = (box["x_max"]-box["x_min"])*image.shape[1]
+                height = (box["y_max"]-box["y_min"])*image.shape[0]
+
+                original_bbox = (x_corner, y_corner, width, height)
+                new_bbox = find_new_centroid(image, original_bbox)
+                plot_single_annotation(image, original_bbox, new_bbox, title)
+
+                current_input = input("Keep New Annotation? [Enter any letter for yes]: ")
+                plt.clf()   # Clears the current figure
+                plt.cla()   # Clears the current axes (optional)
+                plt.close()
+                clear_output(wait=True)
+                if current_input:
+                    new_bbox = (new_bbox[0]/image.shape[1], new_bbox[1]/image.shape[0], new_bbox[2]/image.shape[1], new_bbox[3]/image.shape[0])
+                    data["objects"][j]["x_min"] = new_bbox[0]
+                    data["objects"][j]["y_min"] = new_bbox[1]
+                    data["objects"][j]["x_max"] = new_bbox[0]+new_bbox[2]
+                    data["objects"][j]["y_max"] = new_bbox[1]+new_bbox[3]
+                    data["objects"][j]["x_center"] = (new_bbox[0]+new_bbox[2]/2)
+                    data["objects"][j]["y_center"] = (new_bbox[1]+new_bbox[3]/2)
+                    data["objects"][j]["bbox_width"] = new_bbox[2]
+                    data["objects"][j]["bbox_height"] = new_bbox[3]
+
+            # Save the updated JSON back to the same file
+            with open(json_path, 'w') as f:
+                json.dump(data, f, indent=4)
+        self.update_annotation_to_png()
+        self.recalculate_statistics()
+
+
 
 if __name__ == "__main__":
     # satsim_path = "/mnt/c/Users/david.chaparro/Documents/Repos/SatSim/output"
