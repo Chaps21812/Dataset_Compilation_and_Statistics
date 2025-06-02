@@ -238,7 +238,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 annotation = {
                     "id": np.random.randint(0,9223372036854775806),
                     "image_id": image_id,
-                    "category_id": object["class_id"],# Originallly class_id-1, not sure why
+                    "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
                     "category_name": object["class_name"],
                     "type": "bbox",
                     "centroid": [x_center,y_center],
@@ -270,7 +270,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 annotation = {
                     "id": np.random.randint(0,9223372036854775806),
                     "image_id": image_id,
-                    "category_id": object["class_id"],# Originallly class_id-1, not sure why
+                    "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
                     "category_name": object["class_name"],
                     "type": "bbox",
                     "centroid": [x_center,y_center],
@@ -308,8 +308,8 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         path_to_annotation[fits_path] = {"annotation":annotations, "image":image, "new_id":image_id}
 
     #Compile final json information for folder
-    category1 = {"id": 0,"name": "Satellite","supercategory": "Space Object",}
-    category2 = {"id": 1,"name": "Star","supercategory": "Space Object",}
+    category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
+    category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
     categories = [category1, category2]
     now = dt.datetime.now()
     info = {
