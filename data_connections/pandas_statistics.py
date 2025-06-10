@@ -7,10 +7,12 @@ from tqdm import tqdm
 from collect_stats import collect_stats, collect_satsim_stats, find_new_centroid, find_centroid_COM
 from documentation import write_count
 from plots import plot_single_annotation, plot_error_evaluator
+from target_injection import extract_segmented_patches_from_json_and_fits, inject_target_into_fits
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 import shutil
 from datetime import datetime
+import numpy as np
 
 class PickleSerializable:
     def save(self, filename):
@@ -300,6 +302,52 @@ class file_path_loader():
                     clear_output(wait=True)
         error_types = ["No Error", "Uncentered Box", "Severely Uncentered Box", "Missed Target", "Blank Box", "Silt Transpose Error", "Occlusion [Edge or star]", "Other", "Unknown", "Long Satellite Streak"]
         error_database.sample_attributes['error_type_str'] = error_database.sample_attributes.apply(lambda row: error_types[row['error_type']] if row["error_type"] < len(error_types) else error_types[8], axis=1)
+
+    def inject_targets(self, segmentations_path:str, threshold_factor=1.2, bbox_scale=1.5):
+        #Collect targets to inject
+        local_segmentations = file_path_loader(segmentations_path)
+        target_array = []
+        for annotation_path, fits_path in local_segmentations.annotation_to_fits.items():
+            targets_to_inject = extract_segmented_patches_from_json_and_fits(annotation_path, fits_path,threshold_factor=threshold_factor, bbox_scale=bbox_scale)
+            target_array.extend(targets_to_inject)
+
+        for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
+            json_path = annotation
+            fits_path = fits_pat
+            title = os.path.basename(annotation)
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            num_targets_to_inject = np.random.randint(0,4)
+            for i in range(len(num_targets_to_inject)):
+                patch = np.random.choice(target_array)
+                image, injection_bbox = inject_target_into_fits(image,patch["original_patch"],random_rotation=True,display=True,seed=None)
+                injected_target_dict = {
+                    "type": "box",
+                    "class_name": "Satellite",
+                    "class_id": 1,
+                    "y_min": injection_bbox[1],
+                    "x_min": injection_bbox[0],
+                    "y_max": injection_bbox[1]+injection_bbox[3],
+                    "x_max": injection_bbox[0]+injection_bbox[2],
+                    "y_center": injection_bbox[1]+injection_bbox[3]/2,
+                    "x_center": injection_bbox[0]+injection_bbox[2]/2,
+                    "bbox_height": injection_bbox[3],
+                    "bbox_width": injection_bbox[2]}
+                data["objects"].append(injected_target_dict)
+            hdu[0].data = image
+
+            #DONT FORGET TO SAVE THE NEW IMAGE
+            # Save the updated JSON back to the same file
+            hdu.writeto(fits_path, overwrite=True)
+            with open(json_path, 'w') as f:
+                json.dump(data, f, indent=4)
+        self.update_annotation_to_fits()
+        self.recalculate_statistics()
 
 def error_input_prompt():
     current_input = input("Enter error number: ")
