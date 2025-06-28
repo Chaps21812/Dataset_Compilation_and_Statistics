@@ -3,5 +3,6 @@ data_connections/keys.py
 data_connections/archive/
 data_connections/__pycache__/
 data/
+data_finalized/
 
 data_connections/KEY.py

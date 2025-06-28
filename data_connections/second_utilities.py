@@ -3,18 +3,6 @@ from annotation_viewer import plot_annotations, plot_annotation_subset
 from plots import *
 import os
 from IPython.display import clear_output
-import torch
-import torchvision
-
-def save_torch_script_model(model_path:str, output_path:str, name:str):
-    model =  torchvision.models.detection.retinanet_resnet50_fpn()
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-    example_input = [torch.randn(1, 3, 2048, 2048)]
-    # Trace the model
-    traced_script_module = torch.jit.script(model, example_input)
-    path = os.path.join(output_path,f"{name}-TS.pt" )
-    traced_script_module.save(path)
 
 def get_folders_in_directory(directory_path) ->list:
   if not os.path.exists(directory_path):
@@ -39,7 +27,7 @@ def delete_large_annotations(storage_path, area=1200):
             regenerate_plots(os.path.join(storage_path,file))
         except KeyError: pass
 
-def summarize_local_files(storage_path):
+def get_local_files(storage_path):
     total_images = 0
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
@@ -63,13 +51,6 @@ def apply_bbox_corrections(storage_path):
         #Local file handling tool
         print(file)
         local_files = file_path_loader(os.path.join(storage_path,file))
-        local_files.correct_annotations(apply_changes=True, require_approval=False)
-        
-def apply_bbox_corrections_list(paths:list):
-    for file in paths:
-        #Local file handling tool
-        print(file)
-        local_files = file_path_loader(file)
         local_files.correct_annotations(apply_changes=True, require_approval=False)
         
 def recalculate_all_statistics(storage_path):
@@ -220,9 +201,3 @@ def recalculate_statistics(storage_path):
         #Local file handling tool
         local_files = file_path_loader(file)
         local_files.recalculate_statistics()
-
-if __name__ == "__main__":
-    model_path = "/data/Sentinel_Datasets/Finalized_datasets/LMNT01Sat_Training_Channel_Mixture_C/models/LMNT01_MixtureC/retinanet_weights_E249.pt"
-    output_path = "/data/Sentinel_Datasets/Best_models"
-    name = "LMNT01"
-    save_torch_script_model(model_path, output_path,name)

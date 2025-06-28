@@ -326,7 +326,7 @@ def plot_image_with_bbox(image: np.ndarray, x: int, y: int, size: int, object_n:
         alpha=alpha
     )
     ax.add_patch(rect)
-    ax.text(snr[0], snr[1], snr[2], fontsize=12, color='red', ha='right', va='bottom', alpha=alpha)
+    # ax.text(snr[0], snr[1], snr[2], fontsize=12, color='red', ha='right', va='bottom', alpha=alpha)
     plt.xlim(x-size-50,x+size+50)
     plt.ylim(y-size-50,y+size+50)
 

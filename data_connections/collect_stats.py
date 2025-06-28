@@ -349,8 +349,8 @@ def find_centroid_COM(image, bbox, padding=10):
 
     width = max(5, bbox[2])
     height = max(5, bbox[3])
-    if width==5:
-        print("Box to small,  resize to 5")
+    # if width==5:
+        # print("Box to small,  resize to 5")
 
     x_center = bbox[0]+bbox[2]/2
     y_center = bbox[1]+bbox[3]/2
