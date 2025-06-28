@@ -341,7 +341,6 @@ class file_path_loader():
                 data["objects"].append(injected_target_dict)
             hdu[0].data = image
 
-            #DONT FORGET TO SAVE THE NEW IMAGE
             # Save the updated JSON back to the same file
             hdu.writeto(fits_path, overwrite=True)
             with open(json_path, 'w') as f:
