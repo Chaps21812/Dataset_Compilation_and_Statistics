@@ -238,6 +238,9 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 height = object["bbox_height"]*y_res
                 x_center = object["x_center"]*x_res
                 y_center = object["y_center"]*y_res
+                if abs(width*height) > 1000:
+                    continue
+
                 annotation = {
                     "id": np.random.randint(0,9223372036854775806),
                     "image_id": image_id,
@@ -380,7 +383,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 destination_path = shutil.copy(image, images_folder)
                 shutil.move(destination_path,new_file_name)
 
-def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
+def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
     """
     Converts a satasim generated dataset into a coco dataset
 
@@ -419,8 +422,8 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
                 data = json_data["data"]
                 image_id= np.random.randint(0,9223372036854775806)
                 annotations = []
-                x_res = json_data["sensor"]["width"]
-                y_res = json_data["sensor"]["height"]
+                x_res = data["sensor"]["width"]
+                y_res = data["sensor"]["height"]
 
                 
                 #Process all detected objects
@@ -465,10 +468,10 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
                         x_center = object["x_center"]*x_res
                         y_center = object["y_center"]*y_res
 
-                        deltax = abs((object["x2"]-object["x1"])*x_res)
-                        deltay = abs((object["y2"]-object["y1"])*y_res)
-                        minx = np.min([object["x2"], object["x1"]])*x_res
-                        miny = np.min([object["y2"], object["y1"]])*y_res
+                        deltax = abs((object["x_end"]-object["x_start"])*x_res)
+                        deltay = abs((object["y_end"]-object["y_start"])*y_res)
+                        minx = np.min([object["x_end"], object["x_start"]])*x_res
+                        miny = np.min([object["y_end"], object["y_start"]])*y_res
 
                         annotation = {
                             "id": np.random.randint(0,9223372036854775806),
@@ -528,8 +531,9 @@ def satsim_to_coco(satsim_path:str, include_sats:bool=True, include_stars:bool=F
     ### For one large dataset
     # Save annotation data to corresponding train test json
     #Make new data directory
-    images_folder=os.path.join(silt_dataset_path, "images")
-    annotations_folder=os.path.join(silt_dataset_path, "annotations")
+    os.makedirs(output_dataset, exist_ok=True)
+    images_folder=os.path.join(output_dataset, "images")
+    annotations_folder=os.path.join(output_dataset, "annotations")
     if os.path.exists(images_folder) and os.path.isdir(images_folder):
         shutil.rmtree(images_folder)
         print(f"Deleted folder: {images_folder}")
@@ -588,6 +592,7 @@ def _find_dict(correlation_id, annotation_dict:list):
     for dict in annotation_dict:
         if dict["correlation_id"] == correlation_id:
             return dict
+    return {}
 
 if __name__ == "__main__":
     from preprocess_functions import adaptiveIQR, zscale
