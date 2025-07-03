@@ -4,5 +4,5 @@ data_connections/archive/
 data_connections/__pycache__/
 data/
 data_finalized/
-
+Sentinel_Datasets/
 data_connections/KEY.py

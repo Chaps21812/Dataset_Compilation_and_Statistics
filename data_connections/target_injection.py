@@ -124,7 +124,7 @@ def inject_target_into_fits(
     # Inject (only overwrite where patch is nonzero)
     #Examine injection code here
     patch_mask = patch > 0
-    img_data[y0:y0 + h_patch, x0:x0 + w_patch][patch_mask] += patch[patch_mask]
+    img_data[y0:y0 + h_patch, x0:x0 + w_patch][patch_mask] += patch[patch_mask].astype(np.uint16)
 
     injection_bbox = [x0/w_img, y0/h_img, w_patch/w_img, h_patch/h_img]
 

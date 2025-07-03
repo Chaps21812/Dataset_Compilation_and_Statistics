@@ -337,7 +337,55 @@ class file_path_loader():
                     "y_center": injection_bbox[1]+injection_bbox[3]/2,
                     "x_center": injection_bbox[0]+injection_bbox[2]/2,
                     "bbox_height": injection_bbox[3],
-                    "bbox_width": injection_bbox[2]}
+                    "bbox_width": injection_bbox[2], 
+                    "datatype":"injected"}
+                data["objects"].append(injected_target_dict)
+            hdu[0].data = image
+
+            #DONT FORGET TO SAVE THE NEW IMAGE
+            # Save the updated JSON back to the same file
+            hdu.writeto(fits_path, overwrite=True)
+            with open(json_path, 'w') as f:
+                json.dump(data, f, indent=4)
+        self.update_annotation_to_fits()
+        self.recalculate_statistics()
+
+    def inject_targets_from_numpy(self, segmentations_path:str):
+        #Collect targets to inject
+        numpy_arrays = os.listdir(segmentations_path)
+        target_arrays = []
+        for array_path in numpy_arrays:
+            target = np.load(os.path.join(segmentations_path, array_path))
+            target_arrays.append(target)
+
+        for json_path, fits_path in tqdm(self.annotation_to_fits.items()):
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            num_targets_to_inject = np.random.randint(0,4)
+            for i in range(num_targets_to_inject):
+                idx = np.random.choice(len(target_arrays))
+                patch = target_arrays[idx]
+                image, injection_bbox = inject_target_into_fits(image,patch,random_rotation=True,display=False,seed=None)
+                injected_target_dict = {
+                    "type": "box",
+                    "class_name": "Satellite",
+                    "correlation_id": "404", 
+                    "iso_flux": "404",
+                    "class_id": 1,
+                    "y_min": injection_bbox[1],
+                    "x_min": injection_bbox[0],
+                    "y_max": injection_bbox[1]+injection_bbox[3],
+                    "x_max": injection_bbox[0]+injection_bbox[2],
+                    "y_center": injection_bbox[1]+injection_bbox[3]/2,
+                    "x_center": injection_bbox[0]+injection_bbox[2]/2,
+                    "bbox_height": injection_bbox[3],
+                    "bbox_width": injection_bbox[2], 
+                    "datatype":"injected"}
                 data["objects"].append(injected_target_dict)
             hdu[0].data = image
 
@@ -651,12 +699,18 @@ class coco_path_loader():
 
 
 if __name__ == "__main__":
-    # satsim_path = "/mnt/c/Users/david.chaparro/Documents/Repos/SatSim/output"
-    # local_satsim = satsim_path_loader(satsim_path)
+    # # satsim_path = "/mnt/c/Users/david.chaparro/Documents/Repos/SatSim/output"
+    # # local_satsim = satsim_path_loader(satsim_path)
 
-    dataset_directory = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset_Statistics/data/KWAJData"
+    # dataset_directory = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset_Statistics/data/KWAJData"
 
-    #Local file handling tool
-    local_files = file_path_loader(dataset_directory)
-    local_files.recalculate_statistics()
-    print(f"Num Samples: {len(local_files)}")
+    # #Local file handling tool
+    # local_files = file_path_loader(dataset_directory)
+    # local_files.recalculate_statistics()
+    # print(f"Num Samples: {len(local_files)}")
+
+
+    path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-17-injected"
+    segmentation_path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Injection_targets"
+    local_files = file_path_loader(path)
+    local_files.inject_targets_from_numpy(segmentation_path)

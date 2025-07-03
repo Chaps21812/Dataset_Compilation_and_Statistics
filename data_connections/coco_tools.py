@@ -257,6 +257,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "x_min": x_center-width/2,
                     "y_max": y_center+height/2,
                     "x_max": x_center+width/2,
+                    "datatype":"real"
                     }
 
             if include_stars and object["class_name"] == "Star": 
@@ -287,6 +288,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "iso_flux": object["iso_flux"],
                     "exposure": header["EXPTIME"],
                     "iscrowd": 0,
+                    "datatype":"real"
                     }
 
             other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
@@ -306,7 +308,8 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "lon":header["CENTALT"],
             "file_name": os.path.join("images", f"{image_id}.{filetype}"),
             "original_path": fits_path,
-            "date": header["DATE-OBS"]}
+            "date": header["DATE-OBS"],
+            "datatype":"real"}
         
         image = _merge_dicts(image, sample_attributes)
 
@@ -454,6 +457,7 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                             "x_max": object["x_max"]*x_res ,
                             "source": object["source"],
                             "magnitude": object["magnitude"],
+                            "datatype":"simulated"
                             }
                         annotations.append(annotation)
 
@@ -491,6 +495,7 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                             "x_max": object["x_max"]*x_res ,
                             "source": object["source"],
                             "magnitude": object["magnitude"],
+                            "datatype":"simulated"
                             }
                         annotations.append(annotation)
 
@@ -509,7 +514,8 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                     "file_name": os.path.join("images", f"{image_id}.{filetype}"),
                     "original_path": fits_file,
                     "frame_no": frame_no,
-                    "date": config_data["geometry"]["time"]}
+                    "date": config_data["geometry"]["time"],
+                    "datatype":"simulated"}
 
                 #Add coco image to list of files
                 path_to_annotation[fits_file] = {"annotation":annotations, "image":image, "new_id":image_id}

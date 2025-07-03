@@ -115,6 +115,10 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         detection_dict = {}
         detection_dict["correlation_id"] = object["correlation_id"]
         detection_dict["flux"] = object['iso_flux']
+        try:
+            detection_dict["label_type"] = object['datatype']
+        except:
+            pass
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res
@@ -244,6 +248,11 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
     streak_lengths = []
     for object in json_content["objects"]:
         detection_dict = {}
+
+        try:
+            detection_dict["label_type"] = object['datatype']
+        except:
+            pass
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res
