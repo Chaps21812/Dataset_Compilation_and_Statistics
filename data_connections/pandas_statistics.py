@@ -385,7 +385,7 @@ class file_path_loader():
                     "x_center": injection_bbox[0]+injection_bbox[2]/2,
                     "bbox_height": injection_bbox[3],
                     "bbox_width": injection_bbox[2], 
-                    "datatype":"injected"}
+                    "datatype":"Injected"}
                 data["objects"].append(injected_target_dict)
             hdu[0].data = image
 

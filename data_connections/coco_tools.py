@@ -227,6 +227,11 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         annotations = []
         #Process all detected objects
         for object in object_list:
+            try:
+                label_type = object["datatype"]
+            except:
+                label_type = "Real"
+
 
             if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
                 continue
@@ -257,7 +262,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "x_min": x_center-width/2,
                     "y_max": y_center+height/2,
                     "x_max": x_center+width/2,
-                    "datatype":"real"
+                    "label_type":label_type
                     }
 
             if include_stars and object["class_name"] == "Star": 
@@ -288,7 +293,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "iso_flux": object["iso_flux"],
                     "exposure": header["EXPTIME"],
                     "iscrowd": 0,
-                    "datatype":"real"
+                    "label_type":label_type
                     }
 
             other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
@@ -309,7 +314,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "file_name": os.path.join("images", f"{image_id}.{filetype}"),
             "original_path": fits_path,
             "date": header["DATE-OBS"],
-            "datatype":"real"}
+            "label_type":"real"}
         
         image = _merge_dicts(image, sample_attributes)
 
@@ -431,6 +436,10 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                 
                 #Process all detected objects
                 for object in object_list:
+                    try:
+                        label_type = object["datatype"]
+                    except:
+                        label_type = "Simulated"
                     if include_sats and object["class_name"] == "Satellite": 
                         #Create coco annotation for one image
                         x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
@@ -457,7 +466,7 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                             "x_max": object["x_max"]*x_res ,
                             "source": object["source"],
                             "magnitude": object["magnitude"],
-                            "datatype":"simulated"
+                            "label_type":label_type
                             }
                         annotations.append(annotation)
 
@@ -495,7 +504,7 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                             "x_max": object["x_max"]*x_res ,
                             "source": object["source"],
                             "magnitude": object["magnitude"],
-                            "datatype":"simulated"
+                            "label_type":label_type
                             }
                         annotations.append(annotation)
 
@@ -515,7 +524,7 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                     "original_path": fits_file,
                     "frame_no": frame_no,
                     "date": config_data["geometry"]["time"],
-                    "datatype":"simulated"}
+                    "label_type":"Simulated"}
 
                 #Add coco image to list of files
                 path_to_annotation[fits_file] = {"annotation":annotations, "image":image, "new_id":image_id}

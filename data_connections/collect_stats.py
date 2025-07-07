@@ -118,7 +118,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         try:
             detection_dict["label_type"] = object['datatype']
         except:
-            pass
+            detection_dict["label_type"] = "Real"
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res
@@ -252,7 +252,7 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
         try:
             detection_dict["label_type"] = object['datatype']
         except:
-            pass
+            detection_dict["label_type"] = "Simulated"
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res

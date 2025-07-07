@@ -87,7 +87,9 @@ def inject_target_into_fits(
     patch:np.ndarray,
     random_rotation=True,
     display=True,
-    seed=None
+    seed=None,
+    max_radius=None, 
+    min_radius=0  
 ):
     """
     Injects a segmented target patch into a random location in the FITS image.
@@ -118,8 +120,31 @@ def inject_target_into_fits(
         patch = rotate(patch, angle, reshape=False, order=1, mode='constant', cval=0)
 
     # Ensure target fits in image
-    x0 = random.randint(0, w_img - w_patch)
-    y0 = random.randint(0, h_img - h_patch)
+    cx, cy = w_img // 2, h_img // 2
+
+    # Precompute valid region to avoid patch going out of bounds
+    x_min = w_patch // 2
+    x_max = w_img - w_patch // 2
+    y_min = h_patch // 2
+    y_max = h_img - h_patch // 2
+
+    # Set radius limits
+    max_r = max_radius if max_radius is not None else min(cx, cy)
+    min_r = min_radius
+
+    for _ in range(100):  
+        r = np.random.uniform(min_r, max_r)
+        theta = np.random.uniform(0, 2 * np.pi)
+        dx = int(r * np.cos(theta))
+        dy = int(r * np.sin(theta))
+
+        x0 = cx + dx - w_patch // 2
+        y0 = cy + dy - h_patch // 2
+
+        if x0 >= 0 and y0 >= 0 and x0 + w_patch <= w_img and y0 + h_patch <= h_img:
+            break
+    else:
+        raise RuntimeError("Failed to find valid injection point within radius constraints.")
 
     # Inject (only overwrite where patch is nonzero)
     #Examine injection code here

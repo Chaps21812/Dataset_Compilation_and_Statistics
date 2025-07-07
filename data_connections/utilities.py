@@ -196,12 +196,13 @@ from pandas_statistics import file_path_loader
 import os
 
 def get_folders_in_directory(directory_path):
-  if not os.path.exists(directory_path):
-    return []
-  folders = [
-      os.path.join(directory_path,entry.name) for entry in os.scandir(directory_path) if entry.is_dir()
-  ]
-  return folders
+    if not os.path.exists(directory_path):
+        return []
+    folders = [
+        os.path.join(directory_path,entry.name) for entry in os.scandir(directory_path) if entry.is_dir()
+    ]
+    folders.sort(key=lambda path: os.path.basename(path).lower())
+    return folders
 
 def view_folders(storage_path):
     for file in get_folders_in_directory(storage_path):
