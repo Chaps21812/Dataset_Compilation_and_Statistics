@@ -5,11 +5,14 @@ import json
 import shutil
 import datetime as dt
 import numpy as np
+import copy
+import random
 from pandas_statistics import file_path_loader
 from tqdm import tqdm
 from astropy.io import fits
 from PIL import Image
 from collect_stats import collect_stats, collect_satsim_stats
+from image_stitching import generate_training_crops
 
 def merge_categories(category_list:list):
     name_to_category = {}
@@ -131,10 +134,12 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
             subset_folder = os.path.join(data_folder, titles[j])
             images_alias = os.path.join(data_folder, titles[j], "images")
             annotations_alias = os.path.join(data_folder, titles[j], "annotations")
+            multiframe_annotations_alias = os.path.join(data_folder, titles[j], "multiframe_annotations")
             os.makedirs(data_folder, exist_ok=True)
             os.makedirs(subset_folder, exist_ok=True)
             os.makedirs(images_alias, exist_ok=True)
             os.makedirs(annotations_alias, exist_ok=True)
+            # os.makedirs(multiframe_annotations_alias, exist_ok=True)
 
             info["train"]= train_ratio
             info["test"]= test_ratio
@@ -170,9 +175,11 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         data_folder = destination_path
         new_images_folder = os.path.join(data_folder, "images")
         new_annotations_folder = os.path.join(data_folder, "annotations")
+        multiframe_annotations_alias = os.path.join(data_folder, "multiframe_annotations")
         os.makedirs(data_folder, exist_ok=True)
         os.makedirs(new_images_folder, exist_ok=True)
         os.makedirs(new_annotations_folder, exist_ok=True)
+        # os.makedirs(multiframe_annotations_alias, exist_ok=True)
 
         all_data = {
             "info": info,
@@ -207,9 +214,29 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
     path_to_annotation = {}
     local_files =  file_path_loader(silt_dataset_path)
 
+    ### For one large dataset
+    #Make new data directory
+    images_folder=os.path.join(silt_dataset_path, "images")
+    annotations_folder=os.path.join(silt_dataset_path, "annotations")
+    multiframe_annotations_folder=os.path.join(silt_dataset_path, "multiframe_annotations")
+    if os.path.exists(images_folder) and os.path.isdir(images_folder):
+        shutil.rmtree(images_folder)
+        print(f"Deleted folder: {images_folder}")
+    if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
+        shutil.rmtree(annotations_folder)
+        print(f"Deleted folder: {annotations_folder}")
+    if os.path.exists(multiframe_annotations_folder) and os.path.isdir(multiframe_annotations_folder):
+        shutil.rmtree(multiframe_annotations_folder)
+        print(f"Deleted folder: {multiframe_annotations_folder}")
+    os.makedirs(images_folder, exist_ok=True)
+    os.makedirs(annotations_folder, exist_ok=True)
+    os.makedirs(multiframe_annotations_folder, exist_ok=True)
+
     filetype="fits"
     if convert_png:
         filetype="png"
+
+    collect_dictionary:dict[str,list] = {}
 
     for annotation_path,fits_path in tqdm(local_files.annotation_to_fits.items(), desc="Converting Silt to COCO"):        
         with open(annotation_path, 'r') as f:
@@ -232,6 +259,12 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             except:
                 label_type = "Real"
 
+            try:
+                collection_id = json_data["image_set_id"]
+                collection_start_time = json_data["exp_start_time"]
+            except KeyError:
+                collection_id = "N/A"
+                collection_start_time = "2024-04-24T10:12:17.315000+00:00"
 
             if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
                 continue
@@ -262,6 +295,8 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "x_min": x_center-width/2,
                     "y_max": y_center+height/2,
                     "x_max": x_center+width/2,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
                     "label_type":label_type
                     }
 
@@ -293,6 +328,8 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                     "iso_flux": object["iso_flux"],
                     "exposure": header["EXPTIME"],
                     "iscrowd": 0,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
                     "label_type":label_type
                     }
 
@@ -304,11 +341,12 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "id": image_id,
             "width": json_data["sensor"]["width"],
             "height": json_data["sensor"]["height"],
+            "collect_id":collection_id,
+            "exp_start_time":collection_start_time,
             "type":"siderial" if header["TELTKRA"] == 0.0 else "rate",
             "rate": header["TELTKRA"],
             "exposure_seconds":header["EXPTIME"],
             "gain":1,
-            "lat":header["SITELAT"],
             "lat":header["SITELAT"],
             "lon":header["CENTALT"],
             "file_name": os.path.join("images", f"{image_id}.{filetype}"),
@@ -316,11 +354,24 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "date": header["DATE-OBS"],
             "label_type":"real"}
         
+        image_collect_information = {
+            "collect_id":collection_id,
+            "exp_start_time":collection_start_time,
+            "path":image["file_name"], 
+            "image_id":image["id"]}
+        is_part_of_collect = collection_id != "N/A"
+        if is_part_of_collect:
+            if collection_id not in collect_dictionary:
+                collect_dictionary[collection_id] = []
+                collect_dictionary[collection_id].append(image_collect_information)
+            else:
+                collect_dictionary[collection_id].append(image_collect_information)
+        
         image = _merge_dicts(image, sample_attributes)
 
         #Add coco image to list of files
         path_to_annotation[fits_path] = {"annotation":annotations, "image":image, "new_id":image_id}
-
+        
     #Compile final json information for folder
     category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
     category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
@@ -332,20 +383,6 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         "description": notes,
         "contributor":"EO Solutions",
         "date_created": now.strftime("%Y-%m-%d %H:%M:%S")}
-
-
-    ### For one large dataset
-    #Make new data directory
-    images_folder=os.path.join(silt_dataset_path, "images")
-    annotations_folder=os.path.join(silt_dataset_path, "annotations")
-    if os.path.exists(images_folder) and os.path.isdir(images_folder):
-        shutil.rmtree(images_folder)
-        print(f"Deleted folder: {images_folder}")
-    if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
-        shutil.rmtree(annotations_folder)
-        print(f"Deleted folder: {annotations_folder}")
-    os.makedirs(images_folder, exist_ok=True)
-    os.makedirs(annotations_folder, exist_ok=True)
 
     # Compiling information for annotation file
     images = []
@@ -364,6 +401,23 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
     with open(os.path.join(annotations_folder, "annotations.json"), "w") as outfile:
         data_attributes_obj=json.dumps(all_data, indent=4)
         outfile.write(data_attributes_obj)
+
+    #Compiling Multiframe annotation json
+    final_collections_dictionary = {}
+    for collect_id,collect_list in collect_dictionary.items():
+        new_collect_info_order = []
+        dates_list = []
+        for sub_image_info in collect_list:
+            dates_list.append(str(sub_image_info["exp_start_time"]))
+        argsort_indices = sorted(range(len(dates_list)), key=lambda i: dt.datetime.fromisoformat(dates_list[i]))
+        for index, arg_sorted_index in enumerate(argsort_indices):
+            dict_copy = collect_list[arg_sorted_index]
+            dict_copy["order"] = index
+            new_collect_info_order.append(dict_copy)
+        final_collections_dictionary[collect_id] = new_collect_info_order
+    with open(os.path.join(multiframe_annotations_folder, "multiframe_annotations.json"), "w") as outfile:
+        multiframe_annotations=json.dumps(final_collections_dictionary, indent=4)
+        outfile.write(multiframe_annotations)
 
     #Saving Images with or without compression
     # Compresses to zip, copies file and renames, PNG, and preprocessed
@@ -390,6 +444,220 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             else:
                 destination_path = shutil.copy(image, images_folder)
                 shutil.move(destination_path,new_file_name)
+
+def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include_stars:bool=False, process_func=None, notes:str="", percent_empty_data:float=.33, new_image_size:int=512):
+    """
+    Converts a satasim generated dataset into a coco dataset
+
+    Args:
+        path (list[str]): Input list of files to shuffle and generate a train test split
+        train_ratio (float): Ratio of training samples
+        val_ratio (float): Ratio of validation samples
+        test_ratio (float): Ratio of testing samples
+
+    Returns:
+        train, test, split (tuple): List of files present in the train test split
+    """
+    path_to_annotation = {}
+    local_files =  file_path_loader(silt_dataset_path)
+
+    filetype="png"
+
+    
+    ### For one large dataset
+    #Make new data directory
+    images_folder=os.path.join(silt_dataset_path, "images")
+    annotations_folder=os.path.join(silt_dataset_path, "annotations")
+    multiframe_annotations_folder=os.path.join(silt_dataset_path, "multiframe_annotations")
+    if os.path.exists(images_folder) and os.path.isdir(images_folder):
+        shutil.rmtree(images_folder)
+        print(f"Deleted folder: {images_folder}")
+    if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
+        shutil.rmtree(annotations_folder)
+        print(f"Deleted folder: {annotations_folder}")
+    if os.path.exists(multiframe_annotations_folder) and os.path.isdir(multiframe_annotations_folder):
+        shutil.rmtree(multiframe_annotations_folder)
+        print(f"Deleted folder: {multiframe_annotations_folder}")
+    os.makedirs(images_folder, exist_ok=True)
+    os.makedirs(annotations_folder, exist_ok=True)
+    os.makedirs(multiframe_annotations_folder, exist_ok=True)
+
+    #Iterate for every image
+    for annotation_path,fits_path in tqdm(local_files.annotation_to_fits.items(), desc="Converting Silt to COCO"):        
+        #Loading the data
+        with open(annotation_path, 'r') as f:
+            json_data = json.load(f)
+        hdu = fits.open(fits_path)
+        hdu_copy = copy.deepcopy(hdu)
+
+        #Creating copies and generating the crops necessary for splitting
+        current_image = hdu[0].data
+        overlap = 10*np.random.random()+20
+        images, raw_images, jsons = generate_training_crops(current_image, json_data, process_func, shape_x=new_image_size, shape_y=new_image_size, overlap_x=overlap,overlap_y=overlap)
+
+        #Calculate probabilities of drawing blank images
+        images_with_target = 0
+        total_num_images = len(jsons)
+        for subjson in jsons:
+            if len(subjson["objects"]) != 0:
+                images_with_target += 1
+        images_with_target = max(images_with_target,1)
+
+        #For every cropped image
+        for subimage, raw_subimage, subjson in zip(images,raw_images, jsons):
+            hdu_copy[0].data = raw_subimage
+            hdu_copy[0].header["NAXIS1"] = new_image_size
+            hdu_copy[0].header["NAXIS2"] = new_image_size
+
+            include = True if random.random() < percent_empty_data*images_with_target/(total_num_images-images_with_target) else False
+            if len(subjson["objects"]) == 0 and not include:
+                continue
+
+            sample_attributes, object_attributes = collect_stats(subjson, hdu_copy, padding=20)
+
+            hdul = hdu_copy[0]
+            header = hdul.header
+            x_res = json_data["sensor"]["width"]
+            y_res = json_data["sensor"]["height"]
+            object_list = json_data["objects"]
+            image_id= np.random.randint(0,9223372036854775806)
+            annotations = []
+            #Process all detected objects
+            for object in object_list:
+                try:
+                    label_type = object["datatype"]
+                except:
+                    label_type = "Real"
+
+                if object["type"] == "line":
+                    continue
+                elif include_sats and object["class_name"] == "Satellite": 
+                    #Create coco annotation for one image
+                    x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
+                    y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
+                    width = object["bbox_width"]*x_res
+                    height = object["bbox_height"]*y_res
+                    x_center = object["x_center"]*x_res
+                    y_center = object["y_center"]*y_res
+                    if abs(width*height) > 1000:
+                        continue
+
+                    annotation = {
+                        "id": np.random.randint(0,9223372036854775806),
+                        "image_id": image_id,
+                        "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
+                        "category_name": object["class_name"],
+                        "type": "bbox",
+                        "centroid": [x_center,y_center],
+                        "bbox": [x1,y1,width,height],
+                        "area": abs(width*height),
+                        "iso_flux": object["iso_flux"],
+                        "exposure": header["EXPTIME"],
+                        "iscrowd": 0,
+                        "y_min": y_center-height/2,
+                        "x_min": x_center-width/2,
+                        "y_max": y_center+height/2,
+                        "x_max": x_center+width/2,
+                        "label_type":label_type
+                        }
+
+                if include_stars and object["class_name"] == "Star": 
+                    #Create coco annotation for one image
+                    dx1 =(object["x2"]-object["x1"])*x_res
+                    dy1 =(object["y2"]-object["y1"])*y_res
+                    deltax = abs((object["x2"]-object["x1"])*x_res)
+                    deltay = abs((object["y2"]-object["y1"])*y_res)
+                    minx = np.min([object["x2"], object["x1"]])*x_res
+                    miny = np.min([object["y2"], object["y1"]])*y_res
+                    x1 = object["x1"]*x_res
+                    y1 = object["y1"]*y_res
+                    x_center = object["x_center"]*x_res
+                    y_center = object["y_center"]*y_res
+
+
+                    annotation = {
+                        "id": np.random.randint(0,9223372036854775806),
+                        "image_id": image_id,
+                        "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
+                        "category_name": object["class_name"],
+                        "type": "bbox",
+                        "centroid": [x_center,y_center],
+                        "bbox": [minx,miny,deltax,deltay],
+                        "area": abs(deltax*deltay),
+                        "line": [x1,y1,dx1,dy1],
+                        "line_center": [x_center,y_center],
+                        "iso_flux": object["iso_flux"],
+                        "exposure": header["EXPTIME"],
+                        "iscrowd": 0,
+                        "label_type":label_type
+                        }
+
+                other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+                annotation = _merge_dicts(annotation,other_annotation_attributes )
+                annotations.append(annotation)
+
+            new_file_name = os.path.join("images", f"{image_id}.{filetype}")
+            image = {
+                "id": image_id,
+                "width": json_data["sensor"]["width"],
+                "height": json_data["sensor"]["height"],
+                "type":"siderial" if header["TELTKRA"] == 0.0 else "rate",
+                "rate": header["TELTKRA"],
+                "exposure_seconds":header["EXPTIME"],
+                "gain":1,
+                "lat":header["SITELAT"],
+                "lat":header["SITELAT"],
+                "lon":header["CENTALT"],
+                "file_name": new_file_name,
+                "original_path": fits_path,
+                "date": header["DATE-OBS"],
+                "label_type":"real"}
+            
+            image = _merge_dicts(image, sample_attributes)
+
+            #Add coco image to list of files
+            path_to_annotation[new_file_name] = {"annotation":annotations, "image":image, "new_id":image_id}
+
+            new_file_name = os.path.join(images_folder,str(image_id)+f".{filetype}")
+            data = hdu_copy[0].data
+
+            if data is None or data.size==0:
+                print(f"{new_file_name} failed to save")
+                continue
+            subimage = np.transpose(subimage, (1,2,0))
+            png = Image.fromarray(subimage)
+            png.save(new_file_name)
+
+
+    #Compile final json information for folder
+    category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
+    category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
+    categories = [category1, category2]
+    now = dt.datetime.now()
+    info = {
+        "year": now.year,
+        "version": "1.0",
+        "description": notes,
+        "contributor":"EO Solutions",
+        "date_created": now.strftime("%Y-%m-%d %H:%M:%S")}
+
+    # Compiling information for annotation file
+    images = []
+    annotations = []
+    for path in path_to_annotation.keys():
+        images.append(path_to_annotation[path]["image"])
+        annotations.extend(path_to_annotation[path]["annotation"])
+        
+    #Writing annotations to the json annotations file
+    all_data = {
+        "info": info,
+        "images": images,
+        "annotations": annotations,
+        "categories": categories,
+        "notes": notes}
+    with open(os.path.join(annotations_folder, "annotations.json"), "w") as outfile:
+        data_attributes_obj=json.dumps(all_data, indent=4)
+        outfile.write(data_attributes_obj)
 
 def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
     """
@@ -610,7 +878,57 @@ def _find_dict(correlation_id, annotation_dict:list):
     return {}
 
 if __name__ == "__main__":
-    from preprocess_functions import adaptiveIQR, zscale
-    silt_dataset_path = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset_Statistics/data/RME03AllStar"
+    from preprocess_functions import adaptiveIQR, zscale, channel_mixture_C
+    silt_dataset_path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-24"
     # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
-    silt_to_coco(silt_dataset_path, include_sats=False, include_stars=True, convert_png=True, process_func=zscale, notes="Z Scaled Initial Dataset for testing")
+    # silt_to_coco(silt_dataset_path, include_sats=True, convert_png=True, process_func=zscale, notes="Z Scaled Initial Dataset for testing")
+    # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
+    silt_to_coco_panoptic(silt_dataset_path, process_func=channel_mixture_C, percent_empty_data=.33, notes="Mixture of ZScale, raw, and log-IQR for target injection imagery")
+
+    final_data_path="/data/Sentinel_Datasets/Finalized_datasets/"
+    training_set_output_path = os.path.join(final_data_path, f"Panoptic_MC_LMNT01_train")
+    merge_coco([silt_dataset_path], training_set_output_path, train_test_split=True, train_ratio=.9, val_ratio=.1, test_ratio=0, notes="3000 samples of RME04 panoptic stitching mixture C preprocessing ")
+
+    LA1 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-08"
+    LA2 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-09"
+    LA3 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-10"
+    LA4 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-11"
+    LA5 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-12"
+    LA6 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-13"
+    LA7 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-29"
+
+    LA8 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-08-04"
+    LA9 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-08-20"
+    LA10 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-09-13"
+    LA11 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-09-25"
+    LA12 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-06"
+    LA13 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-15"
+    LA14 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-23"
+    LA15 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-30"
+    LA16 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-11-07"
+    LA17 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-11-15"
+    LA18 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-11-26"
+    LA19 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-06"
+    LA20 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-17"
+    LA21 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-20"
+    LA22 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-30"
+    LA23 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-01-07"
+    LA24 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-01-10"
+    LA25 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-01-23"
+    LA26 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-03"
+    LA27 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-10"
+    LA28 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-16"
+    LA29 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-25"
+
+    final_data_path="/data/Sentinel_Datasets/Finalized_datasets/"
+    all_origins = [LA1, LA2, LA3, LA4, LA5, LA6, LA7, LA8, LA9, LA10, LA11, LA12, LA13, LA14, LA15, LA16, LA17, LA18, LA19, LA20, LA21, LA22, LA23, LA24, LA25, LA26, LA27, LA28, LA29]
+
+    training_set_origins = [LA1, LA2, LA3, LA4, LA5, LA6, LA7]
+    training_set_output_path = os.path.join(final_data_path, f"Panoptic_MC_LMNT01_train")
+
+    eval_origins =  [LA8, LA9, LA10, LA11, LA12, LA13, LA14, LA15, LA16, LA17, LA18, LA19, LA20, LA21, LA22, LA23, LA24, LA25, LA26, LA27, LA28, LA29]
+    eval_finals = [os.path.join(final_data_path, f"{os.path.basename(ESet)}_Panoptic_MC_Eval") for ESet in eval_origins]
+
+    preprocess_func = channel_mixture_C
+
+    merge_coco(training_set_origins, training_set_output_path, train_test_split=True, train_ratio=.9, val_ratio=.1, test_ratio=0, notes="3000 samples of RME04 panoptic stitching mixture C preprocessing ")
