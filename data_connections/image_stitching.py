@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import copy
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import os
 
 #Cropping inspired from https://github.com/Koldim2001/YOLO-Patch-Based-Inference/blob/main/patched_yolo_infer/elements/CropElement.py#L5
@@ -258,7 +259,9 @@ def generate_training_crops(
                         new_target["y_max"] = transformed_y_max/shape_y
                         new_target["x_center"] = (target['x_center']*x_res-lower_x_bound)/shape_x
                         new_target["y_center"] = (target['y_center']*y_res-lower_y_bound)/shape_y
-                        json_copy["objects"].append(target)
+                        new_target["bbox_height"] = target["bbox_height"]*y_res/shape_y
+                        new_target["bbox_width"] = target["bbox_width"]*x_res/shape_x
+                        json_copy["objects"].append(new_target)
 
                         # Convert color image to [H, W, 3] for matplotlib
                         # color_image = np.transpose(standardized_processed_image, (1, 2, 0))
@@ -269,11 +272,15 @@ def generate_training_crops(
                         # axs[0].axis('off')
                         # axs[0].set_xlim(new_target["x_center"]*shape_x-20, new_target["x_center"]*shape_x+20)
                         # axs[0].set_ylim(new_target["y_center"]*shape_y-20, new_target["y_center"]*shape_y+20)
+                        # rect = patches.Rectangle((new_target["x_min"]*shape_x, new_target["y_min"]*shape_y), new_target["bbox_width"]*shape_x, new_target["bbox_height"]*shape_y, linewidth=2, edgecolor='red', facecolor='none', alpha=.4)
+                        # axs[0].add_patch(rect)
                         # axs[1].imshow(color_image/256)
-                        # axs[1].scatter(new_target["x_center"]*shape_x, new_target["y_center"]*shape_y, color='red', alpha=.40)
+                        # # axs[1].scatter(new_target["x_center"]*shape_x, new_target["y_center"]*shape_y, color='red', alpha=.40)
                         # axs[1].set_title('Color')
                         # axs[1].axis('off')
-                        # path="/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-24_copy/test_images"
+                        # rect = patches.Rectangle((new_target["x_min"]*shape_x, new_target["y_min"]*shape_y), new_target["bbox_width"]*shape_x, new_target["bbox_height"]*shape_y, linewidth=2, edgecolor='red', facecolor='none', alpha=.4)
+                        # axs[1].add_patch(rect)
+                        # path="/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-24 copy/test_images"
                         # plt.tight_layout()
                         # plt.savefig(os.path.join(path,f"{str(np.random.randint(0,1000))}.png"))
 

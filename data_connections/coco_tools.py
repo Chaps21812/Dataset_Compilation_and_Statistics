@@ -517,9 +517,9 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
 
             hdul = hdu_copy[0]
             header = hdul.header
-            x_res = json_data["sensor"]["width"]
-            y_res = json_data["sensor"]["height"]
-            object_list = json_data["objects"]
+            x_res = subjson["sensor"]["width"]
+            y_res = subjson["sensor"]["height"]
+            object_list = subjson["objects"]
             image_id= np.random.randint(0,9223372036854775806)
             annotations = []
             #Process all detected objects
@@ -599,8 +599,8 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
             new_file_name = os.path.join("images", f"{image_id}.{filetype}")
             image = {
                 "id": image_id,
-                "width": json_data["sensor"]["width"],
-                "height": json_data["sensor"]["height"],
+                "width": subjson["sensor"]["width"],
+                "height": subjson["sensor"]["height"],
                 "type":"siderial" if header["TELTKRA"] == 0.0 else "rate",
                 "rate": header["TELTKRA"],
                 "exposure_seconds":header["EXPTIME"],
