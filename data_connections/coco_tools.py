@@ -445,7 +445,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 destination_path = shutil.copy(image, images_folder)
                 shutil.move(destination_path,new_file_name)
 
-def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include_stars:bool=False, process_func=None, notes:str="", percent_empty_data:float=.33, new_image_size:int=512):
+def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include_stars:bool=False, process_func=None, overlap:float=None, notes:str="", percent_empty_data:float=.33, new_image_size:int=512):
     """
     Converts a satasim generated dataset into a coco dataset
 
@@ -492,7 +492,9 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
 
         #Creating copies and generating the crops necessary for splitting
         current_image = hdu[0].data
-        overlap = 10*np.random.random()+20
+        random_overlap = 20*np.random.random()+10
+        if overlap is None:
+            overlap = random_overlap
         images, raw_images, jsons = generate_training_crops(current_image, json_data, process_func, shape_x=new_image_size, shape_y=new_image_size, overlap_x=overlap,overlap_y=overlap)
 
         #Calculate probabilities of drawing blank images

@@ -210,6 +210,21 @@ def view_folders(storage_path):
         local_files = file_path_loader(file)
         print(f"Num Samples: {len(local_files)}")
 
+def count_images_in_datasets(storage_path):
+    training_set_directories = ["train", "test", "val"]
+    for file in get_folders_in_directory(storage_path):
+        #Local file handling tool 
+        subfolders = os.listdir(file)
+        if "images" in subfolders:
+            directory = os.path.join(file, "images")
+            total_images = os.listdir(directory)
+            print(f"{directory}: {len(total_images)}")
+        if "train" in subfolders:
+            for subfolder in training_set_directories:
+                directory = os.path.join(file, subfolder, "images")
+                total_images = os.listdir(directory)
+                print(f"{directory}: {len(total_images)}")
+
 def clear_cache(storage_path):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
