@@ -196,7 +196,7 @@ def channel_mixture_A(data:np.ndarray) -> np.ndarray:
     contrast_enhance = _iqr_clip(data)
     contrast_enhance = (_minmax_scale(contrast_enhance)*255).astype(np.uint8)
 
-    data = (data / 255).astype(np.uint8)
+    data = (data / 65535*255).astype(np.uint8)
     return np.stack([data, contrast_enhance, zscaled], axis=0)
 
 def channel_mixture_B(data:np.ndarray) -> np.ndarray:
@@ -205,7 +205,7 @@ def channel_mixture_B(data:np.ndarray) -> np.ndarray:
     contrast_enhance = _adaptive_iqr(data)
     contrast_enhance = (_minmax_scale(contrast_enhance)*255).astype(np.uint8)
 
-    data = (data / 255).astype(np.uint8)
+    data = (data / 65535*255).astype(np.uint8)
     return np.stack([data, contrast_enhance, zscaled], axis=0)
 
 def channel_mixture_C(data:np.ndarray) -> np.ndarray:
@@ -214,11 +214,11 @@ def channel_mixture_C(data:np.ndarray) -> np.ndarray:
     contrast_enhance = _iqr_log(data)
     contrast_enhance = (_minmax_scale(contrast_enhance)*255).astype(np.uint8)
 
-    data = (data / 255).astype(np.uint8)
+    data = (data / 65535*255).astype(np.uint8)
     return np.stack([data, contrast_enhance, zscaled], axis=0)
 
 def raw_file(data: np.ndarray) -> np.ndarray:
-    return  np.stack([data/65535]*3, axis=0).astype(np.uint8)
+    return  np.stack([data/65535*255]*3, axis=0).astype(np.uint8)
 
 if __name__=="__main__":
         from coco_tools import silt_to_coco, satsim_to_coco, merge_coco

@@ -42,11 +42,15 @@ class PDStatistics_calculator(PickleSerializable):
 class file_path_loader():
     def __init__(self, dataset_path:str):
         self.directory = dataset_path
-        self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory,[f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)][0]))
-        self.statistics_filename = os.path.join(self.directory,[f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)][0])
         self.annotation_path = os.path.join(self.directory, "raw_annotation")
         self.fits_file_path = os.path.join(self.directory, "raw_fits")
-        self.update_annotation_to_fits()
+        if len([f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)]) > 0:
+            self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory,[f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)][0]))
+            self.statistics_filename = os.path.join(self.directory,[f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)][0])
+            self.update_annotation_to_fits()
+        else:
+            self.statistics_filename = os.path.join(self.directory,f"{os.path.basename(self.directory)}.pkl")
+            self.recalculate_statistics()
 
     def clear_cache(self):
         pathA = os.path.join(self.directory, "annotations")

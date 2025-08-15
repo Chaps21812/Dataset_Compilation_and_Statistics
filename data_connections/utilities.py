@@ -4,6 +4,7 @@ from plots import *
 import os
 from IPython.display import clear_output
 import torch
+import json
 import torchvision
 
 def save_torch_script_model(model_path:str, output_path:str, name:str):
@@ -237,8 +238,71 @@ def recalculate_statistics(storage_path):
         local_files = file_path_loader(file)
         local_files.recalculate_statistics()
 
+def get_list_attribute(directory, attribute:str):
+    save_path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Plots/NumpyArrays"
+    annotation_path = os.path.join(directory, "annotations","annotations.json")
+    images = {}
+    sample_array = []
+    with open(annotation_path, 'r') as f:
+        json_annot = json.load(f)
+        for annotation in json_annot["annotations"]:
+            if annotation["image_id"] not in images:
+                images[annotation["image_id"]] = []
+                if isinstance(annotation[attribute], list):
+                    images[annotation["image_id"]].extend(annotation[attribute])
+                else:
+                    images[annotation["image_id"]].append(annotation[attribute])
+            else:
+                if isinstance(annotation[attribute], list):
+                    images[annotation["image_id"]].extend(annotation[attribute])
+                else:
+                    images[annotation["image_id"]].append(annotation[attribute])
+        for annotation in json_annot["images"]:
+            if annotation["id"] not in images:
+                images[annotation["id"]] = [0]
+    for key,value in images.items():
+        sample_array.append(np.average(value))
+    base_path = os.path.basename(directory)
+    print(f"{os.path.join(save_path,f"{base_path}_{attribute}.npy")}:")
+    print(f"\tLength: {len(sample_array)}")
+    print(f"\tMin: {np.min(sample_array)}")
+    print(f"\tMedian: {np.median(sample_array)}")
+    print(f"\tMean: {np.average(sample_array)}")
+    print(f"\tMax: {np.max(sample_array)}")
+    print(f"\tstd: {np.std(sample_array)}")
+    print(f"{len(sample_array):.2f} & {np.min(sample_array):.2f} & {np.median(sample_array):.2f} & {np.max(sample_array):.2f}")
+    np.save(os.path.join(save_path,f"{base_path}_{attribute}.npy"), sample_array)
+
+
 if __name__ == "__main__":
-    model_path = "/data/Sentinel_Datasets/Finalized_datasets/LMNT01Sat_Training_Channel_Mixture_C/models/LMNT01_MixtureC/retinanet_weights_E249.pt"
-    output_path = "/data/Sentinel_Datasets/Best_models"
-    name = "LMNT01"
-    save_torch_script_model(model_path, output_path,name)
+    # model_path = "/data/Sentinel_Datasets/Finalized_datasets/LMNT01Sat_Training_Channel_Mixture_C/models/LMNT01_MixtureC/retinanet_weights_E249.pt"
+    # output_path = "/data/Sentinel_Datasets/Best_models"
+    # name = "LMNT01"
+    # save_torch_script_model(model_path, output_path,name)
+    real_paths = []
+    sim_paths = []
+
+    real_paths = ["/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_1_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_2_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_3_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_4_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_5_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_High_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_Low_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_Test",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L2_Test",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_R4_Test"]
+    sim_paths = ["/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_1_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_2_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_3_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_4_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_5_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_High_SNR",
+    "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_Low_SNR"]
+
+    for path in real_paths:
+        get_list_attribute(path,"local_snr")
+    for path in sim_paths:
+        get_list_attribute(path,"snr")

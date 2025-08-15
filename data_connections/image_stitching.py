@@ -288,7 +288,7 @@ def generate_training_crops(
                 image_nnid +=1
 
                 cropped_targets.append(json_copy)
-                raw_cropped_images.append(standardized_raw_image.astype(np.uint8))
+                raw_cropped_images.append(standardized_raw_image)
                 cropped_preprocessed_images.append(standardized_processed_image.astype(np.uint8))
         return cropped_preprocessed_images, raw_cropped_images, cropped_targets
 

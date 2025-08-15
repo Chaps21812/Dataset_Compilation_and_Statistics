@@ -118,7 +118,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         try:
             detection_dict["label_type"] = object['datatype']
         except:
-            detection_dict["label_type"] = "Real"
+            detection_dict["label_type"] = "real"
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res
@@ -173,17 +173,42 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         y_end   = min(data.shape[0], y_max + padding)
         x_start = max(0, x_min - padding)
         x_end   = min(data.shape[1], x_max + padding)
-
         window = data[int(y_start):int(y_end),int(x_start):int(x_end)]
+
+        x_center = (x_max+x_min)/2
+        y_center = (y_max+y_min)/2
+        w = abs(x_max-x_min)
+        h = abs(y_max-y_min)
+        local_backgrounds = []
+        for x_shift in (-1,0,1):
+            for y_shift in (-1,0,1):
+                if y_shift == 0 and x_shift ==0:
+                    continue
+
+                temp_x_center = x_center+x_shift*w
+                temp_y_center = y_center+y_shift*h
+
+                y_start = max(0, temp_y_center - h/2)
+                y_end   = min(data.shape[0], temp_y_center + h/2)
+                x_start = max(0, temp_x_center - w/2)
+                x_end   = min(data.shape[1], temp_x_center + w/2)
+                bkg_window = data[int(y_start):int(y_end),int(x_start):int(x_end)]
+                local_backgrounds.append(bkg_window.ravel())
+
+        local_bkgs = np.concatenate(local_backgrounds)
         local_minimum = np.min(window)
         local_median = np.median(window)
+        local_mean = np.mean(window)
         local_maximum = np.max(window)
         local_std = np.std(window)
         
+        local_bkg_mean = np.mean(local_bkgs)
+        local_bkg_std = np.std(local_bkgs)
+
         detection_dict["local_prominence"] = (signal-local_minimum)/(local_std+1*10**-5)
-        detection_dict["local_snr"] = (signal-local_median)/(local_std+1*10**-5)
+        detection_dict["local_snr"] = (signal-local_bkg_mean)/(local_bkg_std+1*10**-5)
         detection_dict["max_signal_diff"] = 1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
-        detection_dict["global_snr"] = (signal-local_median)/sample_attributes["std_intensity"]
+        # detection_dict["global_snr"] = (signal-local_bkg_mean)/sample_attributes["std_intensity"]
         
         object_attributes.append(detection_dict)
 
@@ -252,7 +277,7 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
         try:
             detection_dict["label_type"] = object['datatype']
         except:
-            detection_dict["label_type"] = "Simulated"
+            detection_dict["label_type"] = "simulated"
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res
@@ -313,18 +338,42 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
         y_end   = min(data.shape[0], y_max + padding)
         x_start = max(0, x_min - padding)
         x_end   = min(data.shape[1], x_max + padding)
-
-
         window = data[int(y_start):int(y_end),int(x_start):int(x_end)]
+
+        x_center = (x_max+x_min)/2
+        y_center = (y_max+y_min)/2
+        w = abs(x_max-x_min)
+        h = abs(y_max-y_min)
+        local_backgrounds = []
+        for x_shift in (-1,0,1):
+            for y_shift in (-1,0,1):
+                if y_shift == 0 and x_shift ==0:
+                    continue
+
+                temp_x_center = x_center+x_shift*w
+                temp_y_center = y_center+y_shift*h
+
+                y_start = max(0, temp_y_center - h/2)
+                y_end   = min(data.shape[0], temp_y_center + h/2)
+                x_start = max(0, temp_x_center - w/2)
+                x_end   = min(data.shape[1], temp_x_center + w/2)
+                bkg_window = data[int(y_start):int(y_end),int(x_start):int(x_end)]
+                local_backgrounds.append(bkg_window.ravel())
+
+        local_bkgs = np.concatenate(local_backgrounds)
         local_minimum = np.min(window)
         local_median = np.median(window)
+        local_mean = np.mean(window)
         local_maximum = np.max(window)
         local_std = np.std(window)
         
+        local_bkg_mean = np.mean(local_bkgs)
+        local_bkg_std = np.std(local_bkgs)
+
         detection_dict["local_prominence"] = (signal-local_minimum)/(local_std+1*10**-5)
-        detection_dict["local_snr"] = (signal-local_median)/(local_std+1*10**-5)
-        detection_dict["max_signal_diff"] = (local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
-        detection_dict["global_snr"] = (signal-local_median)/sample_attributes["std_intensity"]
+        detection_dict["local_snr"] = (signal-local_bkg_mean)/(local_bkg_std+1*10**-5)
+        detection_dict["max_signal_diff"] = 1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
+        # detection_dict["global_snr"] = (signal-local_bkg_mean)/sample_attributes["std_intensity"]
         
         object_attributes.append(detection_dict)
 

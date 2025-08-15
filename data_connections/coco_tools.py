@@ -80,12 +80,107 @@ def split_files(file_list, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15) -> 
 
     return train_files, val_files, test_files
 
-def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", train_test_split:bool=False, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15, zip:bool=False):
+def split_collections(collection_ids:dict, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15) -> tuple:
+    """
+    Generates a train test split given a list of files. 
+
+    Args:
+        input_data (list[str]): Input list of files to shuffle and generate a train test split
+        train_ratio (float): Ratio of training samples
+        val_ratio (float): Ratio of validation samples
+        test_ratio (float): Ratio of testing samples
+
+    Returns:
+        train, test, split (tuple): List of files present in the train test split
+    """
+
+    train_files = []
+    val_files = []
+    test_files = []
+
+    # Ensure the ratios add up to 1
+    if train_ratio + val_ratio + test_ratio != 1.0:
+        raise ValueError("The sum of train, val, and test ratios must be 1.")
+    
+    total_images = sum([len(value) for key,value in collection_ids.items()])
+    all_collects = list(collection_ids.keys())
+    random.shuffle(all_collects)
+    
+    # Calculate the split sizes
+    total_files = total_images
+    train_size = int(total_files * train_ratio)
+    val_size = int(total_files * val_ratio)
+    test_size = total_files - train_size - val_size  # The remainder will be the test set
+
+    for key in all_collects:
+        if len(train_files) < train_size:
+            train_files.extend(collection_ids[key])
+            continue
+        if len(val_files) < val_size:
+            val_files.extend(collection_ids[key])
+            continue
+        if len(test_files) < test_size:
+            test_files.extend(collection_ids[key])
+            continue
+
+    return train_files, val_files, test_files
+
+def split_attribute(collection_ids:dict, attribute_values:dict, num_splits:int) -> tuple:
+    """
+    Generates a train test split given a list of files. 
+
+    Args:
+        input_data (list[str]): Input list of files to shuffle and generate a train test split
+        train_ratio (float): Ratio of training samples
+        val_ratio (float): Ratio of validation samples
+        test_ratio (float): Ratio of testing samples
+
+    Returns:
+        train, test, split (tuple): List of files present in the train test split
+    """
+
+    partitions = [[] for i in range(num_splits)]
+    avg_values = {}
+    fraction = 1/(num_splits)
+    bruh = {}
+
+    for key,tlist in attribute_values.items():
+        bruh[key] = len(tlist)
+        if isinstance(tlist[0], list):
+            bruh_list = []
+            for l in tlist:
+                bruh_list.extend(l)
+            avg_values[key] = np.average(bruh_list)
+        else:
+            avg_values[key] = np.average(tlist)
+        if key not in collection_ids:
+            del avg_values[key]
+            continue
+
+    sorted_items = {k: v for k, v in sorted(avg_values.items(), key=lambda item: item[1])}
+    
+    total_images = sum([len(value) for key,value in collection_ids.items()])
+    
+    num_images = total_images*fraction
+
+    partition_num=0
+    for key in sorted_items:
+        brhu =  avg_values[key]
+        if len(partitions[partition_num]) < num_images:
+            partitions[partition_num].extend(collection_ids[key])
+        else:
+            partition_num +=1
+            partitions[partition_num].extend(collection_ids[key])
+
+    return partitions
+
+def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", train_test_split:bool=False, train_ratio=0.8, val_ratio=0.10, test_ratio=0.10, zip:bool=False):
     path_to_image = []
     images_queue = []
     annotations_queue = []
     notes_queue = []
     catagories_queue = []
+    collections_queue = {}
     id_to_index = {}
     for directory in tqdm(coco_directories, desc="Processing COCO Datasets"):
         anotations_file = os.path.join(directory, "annotations", "annotations.json")
@@ -94,6 +189,13 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         images_queue.extend(annotations["images"])
         annotations_queue.extend(annotations["annotations"])
         notes_queue.append({"info":annotations["info"], "notes":annotations["notes"], "directory": directory })
+    
+        for index, item in enumerate(annotations["images"]):
+            if item['collect_id'] not in collections_queue:
+                collections_queue[item['collect_id']] = []
+                collections_queue[item['collect_id']].append(os.path.join(directory,item['file_name']))
+            else:
+                collections_queue[item['collect_id']].append(os.path.join(directory,item['file_name']))
 
         catagories_queue.extend(annotations["categories"]) #try and find a smarter way of dealing with categories pls
         templist = [os.path.join(directory, "images", image) for image in os.listdir(os.path.join(directory, "images"))]
@@ -122,7 +224,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
     
     if train_test_split:
         titles = ["train","val","test"]
-        file_list_split = split_files(path_to_image, train_ratio=train_ratio, val_ratio=val_ratio, test_ratio=test_ratio)
+        file_list_split = split_collections(collections_queue, train_ratio=train_ratio, val_ratio=val_ratio, test_ratio=test_ratio)
         for j,temp_list in enumerate(file_list_split):
             indicies = [id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))] for single_path in temp_list]
             temp_anot_index = [annotations_id_to_index[id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))]] for single_path in temp_list]
@@ -139,7 +241,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
             os.makedirs(subset_folder, exist_ok=True)
             os.makedirs(images_alias, exist_ok=True)
             os.makedirs(annotations_alias, exist_ok=True)
-            # os.makedirs(multiframe_annotations_alias, exist_ok=True)
+            os.makedirs(multiframe_annotations_alias, exist_ok=True)
 
             info["train"]= train_ratio
             info["test"]= test_ratio
@@ -282,6 +384,8 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 annotation = {
                     "id": np.random.randint(0,9223372036854775806),
                     "image_id": image_id,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
                     "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
                     "category_name": object["class_name"],
                     "type": "bbox",
@@ -317,6 +421,8 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
                 annotation = {
                     "id": np.random.randint(0,9223372036854775806),
                     "image_id": image_id,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
                     "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
                     "category_name": object["class_name"],
                     "type": "bbox",
@@ -352,7 +458,7 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
             "file_name": os.path.join("images", f"{image_id}.{filetype}"),
             "original_path": fits_path,
             "date": header["DATE-OBS"],
-            "label_type":"real"}
+            "label_type":label_type}
         
         image_collect_information = {
             "collect_id":collection_id,
@@ -525,11 +631,20 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
             image_id= np.random.randint(0,9223372036854775806)
             annotations = []
             #Process all detected objects
+            collection_id = ""
+            collection_start_time = ""
+            label_type = ""
+            try:
+                collection_id = subjson["image_set_id"]
+                collection_start_time = subjson["exp_start_time"]
+            except KeyError:
+                collection_id = "N/A"
+                collection_start_time = "2024-04-24T10:12:17.315000+00:00"
             for object in object_list:
                 try:
                     label_type = object["datatype"]
                 except:
-                    label_type = "Real"
+                    label_type = "real"
 
                 if object["type"] == "line":
                     continue
@@ -547,6 +662,8 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
                     annotation = {
                         "id": np.random.randint(0,9223372036854775806),
                         "image_id": image_id,
+                        "collect_id":collection_id,
+                        "exp_start_time":collection_start_time,
                         "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
                         "category_name": object["class_name"],
                         "type": "bbox",
@@ -580,6 +697,8 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
                     annotation = {
                         "id": np.random.randint(0,9223372036854775806),
                         "image_id": image_id,
+                        "collect_id":collection_id,
+                        "exp_start_time":collection_start_time,
                         "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
                         "category_name": object["class_name"],
                         "type": "bbox",
@@ -603,6 +722,8 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
                 "id": image_id,
                 "width": subjson["sensor"]["width"],
                 "height": subjson["sensor"]["height"],
+                "collect_id":collection_id,
+                "exp_start_time":collection_start_time,
                 "type":"siderial" if header["TELTKRA"] == 0.0 else "rate",
                 "rate": header["TELTKRA"],
                 "exposure_seconds":header["EXPTIME"],
@@ -613,7 +734,7 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
                 "file_name": new_file_name,
                 "original_path": fits_path,
                 "date": header["DATE-OBS"],
-                "label_type":"real"}
+                "label_type":label_type}
             
             image = _merge_dicts(image, sample_attributes)
 
@@ -692,7 +813,8 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
         for frame_no, fits_name in enumerate(os.listdir(fits_path)):
             #Path and filename manipulation
             fits_file = os.path.join(fits_path, fits_name)
-            json_file = os.path.join(annotations_path, fits_name.replace(".fits", ".json"))
+            json_file = os.path.join(annotations_path, fits_name.replace(".fits", ".json")) 
+            image_num = float(fits_name.split(".")[1])
             with open(json_file, 'r') as f:
                 #Load satellite annotation data
                 json_data = json.load(f)
@@ -709,7 +831,7 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                     try:
                         label_type = object["datatype"]
                     except:
-                        label_type = "Simulated"
+                        label_type = "simulated"
                     if include_sats and object["class_name"] == "Satellite": 
                         #Create coco annotation for one image
                         x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
@@ -722,6 +844,8 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                         annotation = {
                             "id": np.random.randint(0,9223372036854775806),
                             "image_id": image_id,
+                            "collect_id": path,
+                            "exp_start_time":image_num,
                             "category_id": object["class_id"],# Originallly class_id-1, not sure why
                             "category_name": object["class_name"],
                             "type": "bbox",
@@ -759,6 +883,8 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                         annotation = {
                             "id": np.random.randint(0,9223372036854775806),
                             "image_id": image_id,
+                            "collect_id": path,
+                            "exp_start_time":image_num,
                             "category_id": object["class_id"],# Originallly class_id-1, not sure why
                             "category_name": object["class_name"],
                             "type": "line",
@@ -780,8 +906,11 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
 
                 image = {
                     "id": image_id,
+                    "collect_id": path,
+                    "exp_start_time":image_num,
                     "width": data["sensor"]["width"],
                     "height": data["sensor"]["height"],
+                    "num_objects":len(object_list),
                     "y_fov": config_data["fpa"]["y_fov"],
                     "x_fov": config_data["fpa"]["x_fov"],
                     "type":config_data["geometry"]["site"]["track"]["mode"],
@@ -792,9 +921,8 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                     "lon":config_data["geometry"]["site"]["lon"],
                     "file_name": os.path.join("images", f"{image_id}.{filetype}"),
                     "original_path": fits_file,
-                    "frame_no": frame_no,
                     "date": config_data["geometry"]["time"],
-                    "label_type":"Simulated"}
+                    "label_type":"simulated"}
 
                 #Add coco image to list of files
                 path_to_annotation[fits_file] = {"annotation":annotations, "image":image, "new_id":image_id}
@@ -865,6 +993,117 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                 destination_path = shutil.copy(image, images_folder)
                 shutil.move(destination_path,new_file_name)
 
+def partition_dataset(coco_directories:str, destination_paths:list[str], partition_attribute:str, dataset_size:int=None, notes:str=""):
+    path_to_image = []
+    images_queue = []
+    annotations_queue = []
+    notes_queue = []
+    catagories_queue = []
+    collections_queue = {}
+    attribute_values = {}
+
+    id_to_index = {}
+    anotations_file = os.path.join(coco_directories, "annotations", "annotations.json")
+    with open(anotations_file, 'r') as f:
+        annotations = json.load(f)
+    images_queue.extend(annotations["images"])
+    annotations_queue.extend(annotations["annotations"])
+    notes_queue.append({"info":annotations["info"], "notes":annotations["notes"], "directory": coco_directories })
+
+    contains_objects = {}
+    for item in annotations_queue:
+        contains_objects[item["image_id"]] = True
+
+    if dataset_size is not None:
+        images_queue = images_queue[:dataset_size]
+
+    for index, item in enumerate(images_queue):
+        if item['collect_id'] not in collections_queue:
+            collections_queue[item['collect_id']] = [os.path.join(coco_directories,item['file_name'])]
+        else:
+            collections_queue[item['collect_id']].append(os.path.join(coco_directories,item['file_name']))
+
+        # if item["num_objects"] ==0 and item['collect_id'] not in attribute_values:
+        #     attribute_values[item['collect_id']] = [0]
+        # elif item["num_objects"] ==0 and item['collect_id'] in attribute_values:
+        #     attribute_values[item['collect_id']].append(0)
+        if item["id"] not in contains_objects and item['collect_id'] not in attribute_values:
+            attribute_values[item['collect_id']] = [0]
+        elif item["id"] not in contains_objects and item['collect_id'] in attribute_values:
+            attribute_values[item['collect_id']].append(0)
+    for index, item in enumerate(annotations["annotations"]):
+        if item['collect_id'] not in attribute_values:
+            attribute_values[item['collect_id']] = [item[partition_attribute]]
+        else:
+            attribute_values[item['collect_id']].append(item[partition_attribute])
+
+
+    catagories_queue.extend(annotations["categories"]) #try and find a smarter way of dealing with categories pls
+    templist = [os.path.join(coco_directories, "images", image) for image in os.listdir(os.path.join(coco_directories, "images"))]
+    path_to_image.extend(templist)
+    annotations_id_to_index = [[] for i in range(len(images_queue))]
+    for index, item in enumerate(images_queue):
+        id_to_index[item["id"]] = index
+    for index,anot in enumerate(annotations_queue):
+        try: annotations_id_to_index[id_to_index[anot["image_id"]]].append(index)
+        except KeyError: pass
+    merged_catagories = merge_categories(catagories_queue)
+
+    filetype="fits"
+    if ".png" in path_to_image[0]:
+        filetype="png"
+    
+    now = dt.datetime.now()
+    info = {
+        "year": now.year,
+        "version": "1.0",
+        "description": "Satellite detection of calsat dataset. ",
+        "contributor":"EO Solutions",
+        "date_created": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "annotation": "Satellite BBox",
+        "samples":len(path_to_image),
+        "prev_notes":notes_queue}
+    
+    file_list_split = split_attribute(collections_queue, attribute_values, len(destination_paths))
+    for j,temp_list in enumerate(file_list_split):
+        indicies = [id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))] for single_path in temp_list]
+        temp_anot_index = [annotations_id_to_index[id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))]] for single_path in temp_list]
+
+        ### For one large dataset
+        # Save annotation data to corresponding train test json
+        #Make new data directory
+        data_folder = destination_paths[j]
+        subset_folder = os.path.join(destination_paths[j])
+        images_alias = os.path.join(destination_paths[j], "images")
+        annotations_alias = os.path.join(destination_paths[j], "annotations")
+        multiframe_annotations_alias = os.path.join(destination_paths[j], "multiframe_annotations")
+        os.makedirs(data_folder, exist_ok=True)
+        os.makedirs(subset_folder, exist_ok=True)
+        os.makedirs(images_alias, exist_ok=True)
+        os.makedirs(annotations_alias, exist_ok=True)
+        os.makedirs(multiframe_annotations_alias, exist_ok=True)
+
+        t_anot =  [[annotations_queue[j] for j in li ] for li in temp_anot_index]
+        all_anot = []
+        for t in t_anot:
+            all_anot.extend(t)
+
+        all_data = {
+            "info": info,
+            "images": [images_queue[i] for i in indicies],
+            "annotations":all_anot,
+            "categories": merged_catagories,
+            "notes": notes}
+        data_attributes_obj=json.dumps(all_data, indent=4)
+        with open(os.path.join(annotations_alias, "annotations.json"), "w") as outfile:
+            outfile.write(data_attributes_obj)
+
+        
+        for image in tqdm(temp_list, desc="Copying images", total=len(temp_list)):
+            shutil.copy(image, images_alias)
+    
+
+
 def _merge_dicts(dict1:dict, dict2:dict):
     for key, value in dict2.items():
         if key in dict1:
@@ -881,15 +1120,92 @@ def _find_dict(correlation_id, annotation_dict:list):
 
 if __name__ == "__main__":
     from preprocess_functions import adaptiveIQR, zscale, channel_mixture_C
-    silt_dataset_path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-24"
-    # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
-    # silt_to_coco(silt_dataset_path, include_sats=True, convert_png=True, process_func=zscale, notes="Z Scaled Initial Dataset for testing")
-    # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
-    silt_to_coco_panoptic(silt_dataset_path, process_func=channel_mixture_C, percent_empty_data=.33, notes="Mixture of ZScale, raw, and log-IQR for target injection imagery")
+    # silt_dataset_path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-24"
+    # # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
+    # # silt_to_coco(silt_dataset_path, include_sats=True, convert_png=True, process_func=zscale, notes="Z Scaled Initial Dataset for testing")
+    # # silt_to_coco(Process_pathB, include_sats=False, include_stars=True, zip=False, notes="RME01 dataset with stars only")
+    # silt_to_coco_panoptic(silt_dataset_path, process_func=channel_mixture_C, percent_empty_data=.33, notes="Mixture of ZScale, raw, and log-IQR for target injection imagery")
 
-    final_data_path="/data/Sentinel_Datasets/Finalized_datasets/"
-    training_set_output_path = os.path.join(final_data_path, f"Panoptic_MC_LMNT01_train")
-    merge_coco([silt_dataset_path], training_set_output_path, train_test_split=True, train_ratio=.9, val_ratio=.1, test_ratio=0, notes="3000 samples of RME04 panoptic stitching mixture C preprocessing ")
+    # final_data_path="/data/Sentinel_Datasets/Finalized_datasets/"
+    # training_set_output_path = os.path.join(final_data_path, f"Panoptic_MC_LMNT01_train")
+    # merge_coco([silt_dataset_path], training_set_output_path, train_test_split=True, train_ratio=.9, val_ratio=.1, test_ratio=0, notes="3000 samples of RME04 panoptic stitching mixture C preprocessing ")
+
+    # LA1 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-08"
+    # LA2 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-09"
+    # LA3 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-10"
+    # LA4 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-11"
+    # LA5 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-12"
+    # LA6 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-13"
+    # LA7 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-29"
+
+    # LA8 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-08-04"
+    # LA9 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-08-20"
+    # LA10 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-09-13"
+    # LA11 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-09-25"
+    # LA12 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-06"
+    # LA13 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-15"
+    # LA14 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-23"
+    # LA15 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-10-30"
+    # LA16 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-11-07"
+    # LA17 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-11-15"
+    # LA18 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-11-26"
+    # LA19 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-06"
+    # LA20 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-17"
+    # LA21 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-20"
+    # LA22 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-12-30"
+    # LA23 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-01-07"
+    # LA24 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-01-10"
+    # LA25 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-01-23"
+    # LA26 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-03"
+    # LA27 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-10"
+    # LA28 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-16"
+    # LA29 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-25"
+
+    # final_data_path="/data/Sentinel_Datasets/Finalized_datasets/"
+    # all_origins = [LA1, LA2, LA3, LA4, LA5, LA6, LA7, LA8, LA9, LA10, LA11, LA12, LA13, LA14, LA15, LA16, LA17, LA18, LA19, LA20, LA21, LA22, LA23, LA24, LA25, LA26, LA27, LA28, LA29]
+
+    # training_set_origins = [LA1, LA2, LA3, LA4, LA5, LA6, LA7]
+    # training_set_output_path = os.path.join(final_data_path, f"Panoptic_MC_LMNT01_train")
+
+    # eval_origins =  [LA8, LA9, LA10, LA11, LA12, LA13, LA14, LA15, LA16, LA17, LA18, LA19, LA20, LA21, LA22, LA23, LA24, LA25, LA26, LA27, LA28, LA29]
+    # eval_finals = [os.path.join(final_data_path, f"{os.path.basename(ESet)}_Panoptic_MC_Eval") for ESet in eval_origins]
+
+    # preprocess_func = channel_mixture_C
+
+    # merge_coco(training_set_origins, training_set_output_path, train_test_split=True, train_ratio=.9, val_ratio=.1, test_ratio=0, notes="3000 samples of RME04 panoptic stitching mixture C preprocessing ")
+
+    from preprocess_functions import channel_mixture_A, channel_mixture_B, channel_mixture_C, adaptiveIQR, zscale, iqr_clipped, iqr_log, raw_file
+    from preprocess_functions import _median_column_subtraction, _median_row_subtraction, _background_subtract
+    from utilities import get_folders_in_directory, summarize_local_files, clear_local_caches, clear_local_cache, apply_bbox_corrections
+    import os
+    from utilities import clear_local_caches
+    R1 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-24"
+    R2 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-25"
+    R3 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-26"
+    R4 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-27"
+    R5 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-28"
+    R6 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-29"
+    R7 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-04-30"
+    R8 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-01"
+    R9 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-02"
+    R10 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-03"
+    R11 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-07"
+    R12 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-08"
+    R13 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-09"
+    R14 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-10"
+    R15 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-30"
+    R16 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-31"
+    T1 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-12"
+    T2 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-08"
+    T3 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-13"
+    T4 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-09"
+    T5 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-10"
+    T6 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-07"
+    T7 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-08-05"
+    T8 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-25"
+    T9 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-08-21"
+    T10 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-11"
+    T11 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-08-30"
 
     LA1 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-08"
     LA2 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2024-07-09"
@@ -922,15 +1238,104 @@ if __name__ == "__main__":
     LA28 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-16"
     LA29 = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw/LMNT01Sat-2025-05-25"
 
-    final_data_path="/data/Sentinel_Datasets/Finalized_datasets/"
+    T1 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-12"
+    T2 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-08"
+    T3 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-13"
+    T4 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-09"
+    T5 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-10"
+    T6 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-07"
+    T7 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-08-05"
+    T8 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-25"
+    T9 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-08-21"
+    T10 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-07-11"
+    T11 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-08-30"
+
+    E1 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-09-06"
+    E2 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-11-14"
+    E3 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-12-07"
+    E4 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-09-14"
+    E5 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-11-07"
+    E6 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-08"
+    E7 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-30"
+    E8 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-10"
+    E9 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-12-24"
+    E10 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-12-31"
+    E11 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-11-19"
+    E12 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-31"
+    E13 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-04"
+    E14 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-09-10"
+    E15 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-11-08"
+    E16 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2025-01-08"
+    E17 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-12-20"
+    E18 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-09-20"
+    E19 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-17"
+    E20 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2025-01-04"
+    E21 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-11-27"
+    E22 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-12-17"
+    E23 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-20"
+    E24 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-09-12"
+    E25 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-10-21"
+    E26 = "/data/Sentinel_Datasets/LMNT02_Raw/LMNT02Sat-2024-11-15"
+
+
+    # training_set_origins_LMNT02 = [T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11]
+    training_set_origins_LMNT02 = [E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11]
+
     all_origins = [LA1, LA2, LA3, LA4, LA5, LA6, LA7, LA8, LA9, LA10, LA11, LA12, LA13, LA14, LA15, LA16, LA17, LA18, LA19, LA20, LA21, LA22, LA23, LA24, LA25, LA26, LA27, LA28, LA29]
 
-    training_set_origins = [LA1, LA2, LA3, LA4, LA5, LA6, LA7]
-    training_set_output_path = os.path.join(final_data_path, f"Panoptic_MC_LMNT01_train")
+    training_set_origins_LMNT01 = [LA1, LA2, LA3, LA4, LA5, LA6, LA7]
+    # training_set_output_path_LMNT01 = os.path.join(final_data_path, f"Panoptic_MC_LMNT01_train")
 
     eval_origins =  [LA8, LA9, LA10, LA11, LA12, LA13, LA14, LA15, LA16, LA17, LA18, LA19, LA20, LA21, LA22, LA23, LA24, LA25, LA26, LA27, LA28, LA29]
-    eval_finals = [os.path.join(final_data_path, f"{os.path.basename(ESet)}_Panoptic_MC_Eval") for ESet in eval_origins]
+    # eval_finals = [os.path.join(final_data_path, f"{os.path.basename(ESet)}_Panoptic_MC_Eval") for ESet in eval_origins]
 
     preprocess_func = channel_mixture_C
 
-    merge_coco(training_set_origins, training_set_output_path, train_test_split=True, train_ratio=.9, val_ratio=.1, test_ratio=0, notes="3000 samples of RME04 panoptic stitching mixture C preprocessing ")
+    # merge_coco(training_set_origins_LMNT01, training_set_output_path_LMNT01, train_test_split=True, train_ratio=.7, val_ratio=.15, test_ratio=.15, notes="3000 samples of RME04 panoptic stitching mixture C preprocessing ")
+
+    training_set_origins_RME04 = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16]
+    training_set_origins_LMNT01 = [LA8, LA9, LA10, LA11, LA12, LA13, LA14, LA15]
+    training_set_origins_LMNT02 = [E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11]
+    training_set_origins_RME04 = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14]
+    training_set_origins_LMNT01 = [LA8, LA9, LA10, LA11, LA12, LA13, LA14]
+    training_set_origins_LMNT02 = [E1, E2, E3, E4, E5, E6, E7, E8]
+
+    merge_coco(training_set_origins_RME04, "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_R4_Test", train_test_split=False)
+    merge_coco(training_set_origins_LMNT02, "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L2_Test", train_test_split=False)
+    merge_coco(training_set_origins_LMNT01, "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_Test", train_test_split=False)
+
+
+    # destination_paths = ["/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_Low_SNR","/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_High_SNR"]
+    # destination_paths = ["/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_1_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_2_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_3_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_4_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_5_SNR"]
+    # partition_dataset(training_set_output_path_LMNT01, destination_paths, "local_snr", 10000)
+    # merge_coco(training_set_origins_LMNT01, training_set_output_path_LMNT01, train_test_split=False)
+    # merge_coco(destination_paths, "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1", train_test_split=False)
+    # merge_coco(destination_paths, "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_L1_TTS", train_test_split=True)
+    # for path in destination_paths:
+    #     tpath = path+"_TTS"
+    #     merge_coco([path], tpath, train_test_split=True)
+
+    # satsim_path = "/home/davidchaparro/Repos/SatSim/output"
+    # # output_dataset = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/SatsimMixtureC"
+    # output_dataset = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim"
+
+    # # destination_paths = ["/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_Low_SNR","/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_High_SNR"]
+    
+    # destination_paths = ["/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_1_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_2_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_3_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_4_SNR",
+    #                      "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_5_SNR"]
+    # partition_dataset(output_dataset, destination_paths, "snr", 10000)
+    # merge_coco(destination_paths,"/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim_TTS", train_test_split=True)
+    # merge_coco(destination_paths,"/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Curriculum_SatSim", train_test_split=False)
+    # for path in destination_paths:
+    #     tpath = path+"_TTS"
+    #     merge_coco([path], tpath, train_test_split=True)
+
+    # for path in training_set_origins_LMNT01:
+    #     silt_to_coco_panoptic(path, process_func=preprocess_func, percent_empty_data=.5, overlap=10, notes="Mixture of ZScale, raw, and log-IQR for Panoptic COCO imagery at 10 percent overlap")
