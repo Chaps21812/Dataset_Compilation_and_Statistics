@@ -6,6 +6,9 @@ from IPython.display import clear_output
 import torch
 import json
 import torchvision
+import shutil
+from tqdm import tqdm
+from collections import Counter
 
 def save_torch_script_model(model_path:str, output_path:str, name:str):
     model =  torchvision.models.detection.retinanet_resnet50_fpn()
@@ -209,7 +212,7 @@ def view_folders(storage_path):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
         local_files = file_path_loader(file)
-        print(f"Num Samples: {len(local_files)}")
+        print(f"{file}: {len(local_files)}")
 
 def count_images_in_datasets(storage_path):
     training_set_directories = ["train", "test", "val"]
@@ -263,7 +266,8 @@ def get_list_attribute(directory, attribute:str):
     for key,value in images.items():
         sample_array.append(np.average(value))
     base_path = os.path.basename(directory)
-    print(f"{os.path.join(save_path,f"{base_path}_{attribute}.npy")}:")
+    print(f"Directory: {directory}")
+    print(f"Save path: {os.path.join(save_path,f"{base_path}_{attribute}.npy")}")
     print(f"\tLength: {len(sample_array)}")
     print(f"\tMin: {np.min(sample_array)}")
     print(f"\tMedian: {np.median(sample_array)}")
@@ -273,6 +277,46 @@ def get_list_attribute(directory, attribute:str):
     print(f"{len(sample_array):.2f} & {np.min(sample_array):.2f} & {np.median(sample_array):.2f} & {np.max(sample_array):.2f}")
     np.save(os.path.join(save_path,f"{base_path}_{attribute}.npy"), sample_array)
 
+def generate_original_dataset(directory, output_dir):
+    annotations_path = os.path.join(directory, "annotations", "annotations.json")
+
+    annotation_output_dir = os.path.join(output_dir, "raw_annotation")
+    fits_output_dir = os.path.join(output_dir, "raw_fits")
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(annotation_output_dir, exist_ok=True)
+    os.makedirs(fits_output_dir, exist_ok=True)
+
+    with open(annotations_path, "r") as f:
+        json_annotations = json.load(f)
+    for image in tqdm(json_annotations["images"]):
+        original_fits = image["original_path"]
+        base_fits_name:str = os.path.basename(original_fits)
+        base_annotation_name = base_fits_name.replace(".fits",".json")
+        original_annotations = os.path.join(os.path.dirname(os.path.dirname(original_fits)), "raw_annotation", base_annotation_name)
+        new_annotation_name = os.path.join(annotation_output_dir, base_annotation_name)
+        new_destination = os.path.join(fits_output_dir, base_fits_name)
+        shutil.copy(original_fits, new_destination)
+        shutil.copy(original_annotations, new_annotation_name)
+
+def get_list_of_empty_images(directory):
+    json_path = os.path.join(directory,"annotations","annotations.json")
+    with open(json_path, 'r') as f:
+        json_contents = json.load(f)
+    id_counter = Counter()
+    # for im in json_contents["images"]:
+    #     im["id"]
+    for annot in json_contents["annotations"]:
+        id_counter.update([annot["image_id"]])
+
+
+    num_images = len(json_contents["images"])
+    num_images_with_target = len(id_counter.keys())
+    num_without_target = num_images-len(id_counter.keys())
+    percent_empty = (num_without_target)/num_images
+
+    print(directory)
+    print(f"Num Images = {num_images:.2f}, Num images with target = {num_images_with_target:.2f}, Num images without target = {num_without_target:.2f}, Percent empty = {percent_empty:.2f}")
+    print(f"&{num_images:.2f}&{num_images_with_target:.2f}&{num_without_target:.2f}&{percent_empty:.2f}\\\\")
 
 if __name__ == "__main__":
     # model_path = "/data/Sentinel_Datasets/Finalized_datasets/LMNT01Sat_Training_Channel_Mixture_C/models/LMNT01_MixtureC/retinanet_weights_E249.pt"

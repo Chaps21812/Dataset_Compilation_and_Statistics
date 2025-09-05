@@ -355,18 +355,19 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         image_id= np.random.randint(0,9223372036854775806)
         annotations = []
         #Process all detected objects
-        for object in object_list:
-            try:
-                label_type = object["datatype"]
-            except:
-                label_type = "Real"
+        try:
+            collection_id = json_data["image_set_id"]
+            collection_start_time = json_data["exp_start_time"]
+        except KeyError:
+            collection_id = str(np.random.randint(0,9223372036854775806))
+            collection_start_time = "2024-04-24T10:12:17.315000+00:00"
+        try:
+            label_type = object["datatype"]
+        except:
+            label_type = "Real"
 
-            try:
-                collection_id = json_data["image_set_id"]
-                collection_start_time = json_data["exp_start_time"]
-            except KeyError:
-                collection_id = "N/A"
-                collection_start_time = "2024-04-24T10:12:17.315000+00:00"
+        for object in object_list:
+
 
             if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
                 continue
@@ -993,7 +994,7 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                 destination_path = shutil.copy(image, images_folder)
                 shutil.move(destination_path,new_file_name)
 
-def partition_dataset(coco_directories:str, destination_paths:list[str], partition_attribute:str, dataset_size:int=None, notes:str=""):
+def partition_dataset(coco_directories:str, destination_paths:list[str], partition_attribute:str=None, dataset_size:int=None, notes:str=""):
     path_to_image = []
     images_queue = []
     annotations_queue = []
@@ -1032,10 +1033,16 @@ def partition_dataset(coco_directories:str, destination_paths:list[str], partiti
         elif item["id"] not in contains_objects and item['collect_id'] in attribute_values:
             attribute_values[item['collect_id']].append(0)
     for index, item in enumerate(annotations["annotations"]):
-        if item['collect_id'] not in attribute_values:
-            attribute_values[item['collect_id']] = [item[partition_attribute]]
+        if partition_attribute is not None:
+            if item['collect_id'] not in attribute_values:
+                attribute_values[item['collect_id']] = [item[partition_attribute]]
+            else:
+                attribute_values[item['collect_id']].append(item[partition_attribute])
         else:
-            attribute_values[item['collect_id']].append(item[partition_attribute])
+            if item['collect_id'] not in attribute_values:
+                attribute_values[item['collect_id']] = [0]
+            else:
+                attribute_values[item['collect_id']].append(0)
 
 
     catagories_queue.extend(annotations["categories"]) #try and find a smarter way of dealing with categories pls
