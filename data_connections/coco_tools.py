@@ -13,6 +13,7 @@ from astropy.io import fits
 from PIL import Image
 from collect_stats import collect_stats, collect_satsim_stats
 from image_stitching import generate_training_crops
+from Spacecraft import SPACECRAFT
 
 def merge_categories(category_list:list):
     name_to_category = {}
@@ -1109,6 +1110,228 @@ def partition_dataset(coco_directories:str, destination_paths:list[str], partiti
         for image in tqdm(temp_list, desc="Copying images", total=len(temp_list)):
             shutil.copy(image, images_alias)
     
+def build_coco_satnet(satnet_directory:str, destination_path:str, convert_png:bool=True, process_func=None, notes:str=""):
+    raw_annotation_directory = os.path.join(satnet_directory, "raw_data")
+    path_to_annotation = {}
+
+    ### For one large dataset
+    #Make new data directory
+    images_folder=os.path.join(destination_path, "images")
+    annotations_folder=os.path.join(destination_path, "annotations")
+    multiframe_annotations_folder=os.path.join(destination_path, "multiframe_annotations")
+    if os.path.exists(images_folder) and os.path.isdir(images_folder):
+        shutil.rmtree(images_folder)
+        print(f"Deleted folder: {images_folder}")
+    if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
+        shutil.rmtree(annotations_folder)
+        print(f"Deleted folder: {annotations_folder}")
+    if os.path.exists(multiframe_annotations_folder) and os.path.isdir(multiframe_annotations_folder):
+        shutil.rmtree(multiframe_annotations_folder)
+        print(f"Deleted folder: {multiframe_annotations_folder}")
+    os.makedirs(images_folder, exist_ok=True)
+    os.makedirs(annotations_folder, exist_ok=True)
+    os.makedirs(multiframe_annotations_folder, exist_ok=True)
+
+    filetype="fits"
+    if convert_png:
+        filetype="png"
+
+    collect_dictionary:dict[str,list] = {}
+
+    for folder in tqdm(os.listdir(raw_annotation_directory), desc="Converting SatNet to COCO"):
+        annotation_folder = os.path.join(raw_annotation_directory, folder, "Annotations")
+        fits_folder =os.path.join(raw_annotation_directory, folder, "ImageFiles")
+
+        for annotation_path,fits_path in tqdm(zip(os.listdir(annotation_folder), os.listdir(fits_folder)), desc=f"Converting {folder} to COCO"):        
+            annotation_path = os.path.join(annotation_folder, annotation_path)
+            fits_path = os.path.join(fits_folder, fits_path)
+            
+            with open(annotation_path, 'r') as f:
+                try: 
+                    json_data = json.load(f)
+                    try:
+                        json_data = json_data["data"]
+                    except KeyError:
+                        json_data = json_data
+                except  UnicodeDecodeError: continue
+            hdu = fits.open(fits_path)
+
+
+            sample_attributes, object_attributes = collect_stats(json_data, hdu, padding=20)
+
+            hdul = hdu[0]
+            header = hdul.header
+            x_res = json_data["sensor"]["width"]
+            y_res = json_data["sensor"]["height"]
+            object_list = json_data["objects"]
+            image_id= np.random.randint(0,9223372036854775806)
+            annotations = []
+            #Process all detected objects
+            try:
+                collection_id = json_data["image_set_id"]
+                collection_start_time = json_data["exp_start_time"]
+            except KeyError:
+                collection_id = str(np.random.randint(0,9223372036854775806))
+                collection_start_time = "2024-04-24T10:12:17.315000+00:00"
+
+            label_type = "SatNet"
+
+            try:
+                norad_id = fits_path.split(".")[0]
+                spacecraft = SPACECRAFT[norad_id]
+            except:
+                spacecraft = "None"
+
+            for object in object_list:
+                #Create coco annotation for one image
+                x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
+                y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
+                width = object["bbox_width"]*x_res
+                height = object["bbox_height"]*y_res
+                x_center = object["x_center"]*x_res
+                y_center = object["y_center"]*y_res
+                if abs(width*height) > 1000:
+                    continue
+
+                annotation = {
+                    "id": np.random.randint(0,9223372036854775806),
+                    "image_id": image_id,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
+                    "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
+                    "category_name": object["class_name"],
+                    "type": "bbox",
+                    "centroid": [x_center,y_center],
+                    "bbox": [x1,y1,width,height],
+                    "area": abs(width*height),
+                    "exposure": header["EXPTIME"],
+                    "iscrowd": 0,
+                    "y_min": y_center-height/2,
+                    "x_min": x_center-width/2,
+                    "y_max": y_center+height/2,
+                    "x_max": x_center+width/2,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
+                    "label_type":label_type
+                    }
+
+                try: other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+                except KeyError: other_annotation_attributes = {}
+                annotation = _merge_dicts(annotation,other_annotation_attributes )
+                annotations.append(annotation)
+
+            image = {
+                "id": image_id,
+                "width": json_data["sensor"]["width"],
+                "height": json_data["sensor"]["height"],
+                "collect_id":collection_id,
+                "exp_start_time":collection_start_time,
+                "type":"siderial" if header["TELTKRA"] == 0.0 else "rate",
+                "rate": header["TELTKRA"],
+                "exposure_seconds":header["EXPTIME"],
+                "gain":1,
+                "lat":header["SITELAT"],
+                "lon":header["CENTALT"],
+                "file_name": os.path.join("images", f"{image_id}.{filetype}"),
+                "original_path": fits_path,
+                "date": header["DATE-OBS"],
+                "spacecraft":spacecraft,
+                "label_type":label_type}
+            
+            image_collect_information = {
+                "collect_id":collection_id,
+                "exp_start_time":collection_start_time,
+                "path":image["file_name"], 
+                "image_id":image["id"]}
+            is_part_of_collect = collection_id != "N/A"
+            if is_part_of_collect:
+                if collection_id not in collect_dictionary:
+                    collect_dictionary[collection_id] = []
+                    collect_dictionary[collection_id].append(image_collect_information)
+                else:
+                    collect_dictionary[collection_id].append(image_collect_information)
+            
+            image = _merge_dicts(image, sample_attributes)
+
+            #Add coco image to list of files
+            path_to_annotation[fits_path] = {"annotation":annotations, "image":image, "new_id":image_id}
+        
+    #Compile final json information for folder
+    category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
+    category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
+    categories = [category1, category2]
+    now = dt.datetime.now()
+    info = {
+        "year": now.year,
+        "version": "1.0",
+        "description": notes,
+        "contributor":"EO Solutions",
+        "date_created": now.strftime("%Y-%m-%d %H:%M:%S")}
+
+    # Compiling information for annotation file
+    images = []
+    annotations = []
+    for path in path_to_annotation.keys():
+        images.append(path_to_annotation[path]["image"])
+        annotations.extend(path_to_annotation[path]["annotation"])
+        
+    #Writing annotations to the json annotations file
+    all_data = {
+        "info": info,
+        "images": images,
+        "annotations": annotations,
+        "categories": categories,
+        "notes": notes}
+    with open(os.path.join(annotations_folder, "annotations.json"), "w") as outfile:
+        data_attributes_obj=json.dumps(all_data, indent=4)
+        outfile.write(data_attributes_obj)
+
+    #Compiling Multiframe annotation json
+    final_collections_dictionary = {}
+    for collect_id,collect_list in collect_dictionary.items():
+        new_collect_info_order = []
+        dates_list = []
+        for sub_image_info in collect_list:
+            dates_list.append(str(sub_image_info["exp_start_time"]))
+        argsort_indices = sorted(range(len(dates_list)), key=lambda i: dt.datetime.fromisoformat(dates_list[i]))
+        for index, arg_sorted_index in enumerate(argsort_indices):
+            dict_copy = collect_list[arg_sorted_index]
+            dict_copy["order"] = index
+            new_collect_info_order.append(dict_copy)
+        final_collections_dictionary[collect_id] = new_collect_info_order
+    with open(os.path.join(multiframe_annotations_folder, "multiframe_annotations.json"), "w") as outfile:
+        multiframe_annotations=json.dumps(final_collections_dictionary, indent=4)
+        outfile.write(multiframe_annotations)
+
+    #Saving Images with or without compression
+    # Compresses to zip, copies file and renames, PNG, and preprocessed
+
+    for image in tqdm(path_to_annotation.keys(), desc="Copying images", total=len(path_to_annotation.keys())):
+        new_file_name = os.path.join(images_folder,str(path_to_annotation[image]["new_id"])+f".{filetype}")
+        if convert_png:
+            hdu = fits.open(image)
+            hdul = hdu[0]
+            data = hdul.data
+            if data is None or data.size==0:
+                print(f"{new_file_name} failed to save")
+                continue
+            if process_func is not None:
+                data = process_func(data)
+            else: 
+                data = np.stack([data,data,data], axis=0)
+                data = (data / 256).astype(np.uint8)
+            data = np.transpose(data, (1,2,0))
+            png = Image.fromarray(data)
+            png.save(new_file_name)
+        else:
+            destination_path = shutil.copy(image, images_folder)
+            shutil.move(destination_path,new_file_name)
+
+
+
+
+
+
 
 
 def _merge_dicts(dict1:dict, dict2:dict):

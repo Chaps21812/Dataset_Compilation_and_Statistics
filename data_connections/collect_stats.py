@@ -80,10 +80,14 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     y_res = hdu["NAXIS2"]
 
     sample_attributes["filename"] = json_content["file"]["filename"]
-    sample_attributes["id_sensor"] = json_content["file"]["id_sensor"]
-    sample_attributes["QA"] = json_content["approved"]
-    sample_attributes["label_created"] = json_content["created"]
-    sample_attributes["label_updated"] = json_content["updated"]
+    try: sample_attributes["id_sensor"] = json_content["file"]["id_sensor"]
+    except KeyError: sample_attributes["id_sensor"] = "N/A"
+    try: sample_attributes["QA"] = json_content["approved"]
+    except KeyError: sample_attributes["QA"] = "N/A"
+    try: sample_attributes["label_created"] = json_content["created"]
+    except KeyError: sample_attributes["label_created"] = "N/A"
+    try:sample_attributes["label_updated"] = json_content["updated"]
+    except KeyError:sample_attributes["label_updated"] = "N/A"
     # sample_attributes["too_few_stars"] = json_content["too_few_stars"]
     # sample_attributes["empty_image"] = json_content["empty_image"]
     sample_attributes["num_objects"] = len(json_content["objects"])
@@ -113,8 +117,10 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     streak_lengths = []
     for object in json_content["objects"]:
         detection_dict = {}
-        detection_dict["correlation_id"] = object["correlation_id"]
-        detection_dict["flux"] = object['iso_flux']
+        try: detection_dict["correlation_id"] = object["correlation_id"]
+        except: detection_dict["correlation_id"] = "Error in collect ID"
+        try: detection_dict["flux"] = object['iso_flux']
+        except KeyError: detection_dict["flux"] = "N/A"
         try:
             detection_dict["label_type"] = object['datatype']
         except:
@@ -122,9 +128,13 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
 
         x_cord= object["x_center"]*x_res
         y_cord= object["y_center"]*y_res
-        signal = data[int(y_cord), int(x_cord)]
+        try: signal = data[int(y_cord), int(x_cord)]
+        except IndexError: signal = data[int(y_cord)-1, int(x_cord)-1]
 
-        if object['class_name']=="Satellite" and object["type"] != "line": 
+        try: objtype = object["type"]
+        except KeyError: objtype = "bbox"
+
+        if object['class_name']=="Satellite" and objtype != "line": 
             sats+=1
             detection_dict["filename"] = json_content["file"]["filename"]
             detection_dict["object_type"] = object['class_name']

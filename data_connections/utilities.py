@@ -216,8 +216,15 @@ def view_folders(storage_path):
 
 def count_images_in_datasets(storage_path):
     training_set_directories = ["train", "test", "val"]
+    raw_directories =  ["raw_annotation", "raw_fits"]
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool 
+        if "raw_annotation" in file:
+            for subfolder in raw_directories:
+                directory = os.path.join(file)
+                total_images = os.listdir(directory)
+                print(f"{directory}: {len(total_images)}")
+                
         subfolders = os.listdir(file)
         if "images" in subfolders:
             directory = os.path.join(file, "images")
@@ -312,11 +319,56 @@ def get_list_of_empty_images(directory):
     num_images = len(json_contents["images"])
     num_images_with_target = len(id_counter.keys())
     num_without_target = num_images-len(id_counter.keys())
+    Ratio = num_without_target/num_images_with_target
     percent_empty = (num_without_target)/num_images
 
     print(directory)
-    print(f"Num Images = {num_images:.2f}, Num images with target = {num_images_with_target:.2f}, Num images without target = {num_without_target:.2f}, Percent empty = {percent_empty:.2f}")
-    print(f"&{num_images:.2f}&{num_images_with_target:.2f}&{num_without_target:.2f}&{percent_empty:.2f}\\\\")
+    print(f"Num Images = {num_images:.2f}, Num images with target = {num_images_with_target:.2f}, Num images without target = {num_without_target:.2f}, ratio={Ratio:.2f}, Percent empty = {percent_empty:.2f}")
+    print(f"&{num_images:.2f}&{num_images_with_target:.2f}&{num_without_target:.2f}&{Ratio:.2f}&{percent_empty:.2f}\\\\")
+
+def get_bbox_sizes(directory, save_directory=None, save_type="pdf", color="#AABBCCFF"):
+    print(directory)
+    json_path = os.path.join(directory,"annotations","annotations.json")
+    bbox_widths = []
+    bbox_heights = []
+    bbox_areas = []
+    with open(json_path, 'r') as f:
+        json_contents = json.load(f)
+    for annot in json_contents["annotations"]:
+        bbox_areas.append(annot["area"]/(2394*1595)*100)
+        bbox_widths.append(annot["bbox"][2]/2394)
+        bbox_heights.append(annot["bbox"][3]/1595)
+
+    if save_directory is not None:
+        plt.hist(bbox_areas, bins=30, color=color,edgecolor='black')
+        plt.title("Area Distribution")
+        plt.xlabel("Area Percentage (%)")
+        plt.ylabel("Count")
+        plt.savefig(os.path.join(save_directory, f"area_distribution.{save_type}"))
+        plt.close()
+
+        plt.hist(bbox_widths, bins=30, color=color,edgecolor='black')
+        plt.title("Width Distribution")
+        plt.xlabel("Width Percentage")
+        plt.ylabel("Count")
+        plt.savefig(os.path.join(save_directory, f"width_distribution.{save_type}"))
+        plt.close()
+
+        plt.hist(bbox_heights, bins=30, color=color,edgecolor='black')
+        plt.title("Height Distribution")
+        plt.xlabel("Height Percentage")
+        plt.ylabel("Count")
+        plt.savefig(os.path.join(save_directory, f"height_distribution.{save_type}"))
+        plt.close()
+        
+
+    # "width": 2394,
+    # "height": 1595,
+
+    print(f"AVG area={np.average(bbox_areas):.2f}, Median area={np.median(bbox_areas):.2f}, Min area={np.min(bbox_areas):.2f}, max area={np.max(bbox_areas):.2f}")
+    print(f"AVG width={np.average(bbox_widths):.2f}, Median width={np.median(bbox_widths):.2f}, Min width={np.min(bbox_widths):.2f}, max width={np.max(bbox_widths):.2f}")
+    print(f"AVG height={np.average(bbox_heights):.2f}, Median height={np.median(bbox_heights):.2f}, Min height={np.min(bbox_heights):.2f}, max height={np.max(bbox_widths):.2f}")
+
 
 if __name__ == "__main__":
     # model_path = "/data/Sentinel_Datasets/Finalized_datasets/LMNT01Sat_Training_Channel_Mixture_C/models/LMNT01_MixtureC/retinanet_weights_E249.pt"

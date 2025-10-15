@@ -701,7 +701,6 @@ class coco_path_loader():
         self.recalculate_statistics()
 
 
-
 if __name__ == "__main__":
     # # satsim_path = "/mnt/c/Users/david.chaparro/Documents/Repos/SatSim/output"
     # # local_satsim = satsim_path_loader(satsim_path)
