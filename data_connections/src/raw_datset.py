@@ -758,7 +758,7 @@ class raw_dataset():
             subset_database.save(os.path.join(self.directory, "quality_subset.pkl"))
         self.recalculate_statistics()
 
-    def correct_annotations(self, apply_changes:bool=False, require_approval:bool=False):
+    def correct_annotations(self, apply_changes:bool=True, require_approval:bool=False):
         for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
             json_path = annotation
             fits_path = fits_pat

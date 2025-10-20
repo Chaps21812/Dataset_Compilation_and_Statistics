@@ -37,7 +37,7 @@ Copy the [UDL Key] into a file called /src/UDL_KEY.py under the variable name UD
 ### Downloading Data
 Make sure to connect the repositories in the previous step to download data. If you are downloading data, find which silt directory you intend to download from using the AWS extension. (This is known not to work on ADA4, so try locally or phone a friend for a directory). Under the python notebook named "DatabaseDownloader.ipynb", there are examples of how to download data. The S3Client object requires a SILT directory, and scans and pairs all of the annotations with fits files. IF no fits files are found on SILT, then it will wait to download them from UDL. 
 
-```
+```python
 downloader = S3Client(RME04_PATH) #Initializes downloader on desired database path. Gives list of dates to download
 download_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04-2025_Annotations"
 
@@ -53,19 +53,73 @@ There are other download tools but I reccomend the download_annotation_dates for
 
 ### Raw Datasets
 
-Raw datasets contain the raw annotation information 
+Raw datasets contain the raw annotation information downloaded from the UDL. To initialize a raw dataset follow the following script 
 
-#### Preprocessing
+```python
+from src.raw_dataset import raw_dataset
+
+path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025_Annotations/2025-04-25"
+dataset = raw_dataset("/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025_Annotations/2025-04-25")
+
+```
+which will cause the raw dataset object to calculate statistics on all attributes and annotations of the raw data. Raw datasets can also be modified with annotation corrections, or examined for quality assurance or create a hand selected dataset. 
+
 #### Bounding Box Corrections
+
+This python notebook applies bounding box correction to all annotations in a raw dataset. You can use a script or use the python notebook. If you set "require_approval" to true, you can manually accept or reject a particular dataset correction. This only recentroids the bounding boxes and does not resize the box. 
+
+```Python
+# %matplotlib widget
+from src.raw_datset import raw_dataset
+
+path="/mnt/c/Users/david.chaparro/Documents/Repos/Dataset_Statistics/data/RME04Sat-2025-05-10_last_take"
+local = raw_dataset(path)
+local.correct_annotations(require_approval=False)
+```
+
 #### Target Injection
-#### Image Chipping
+
+
+
+#### Error Characterizer
+
+To quantify the quality of an EI dataset, use the file called "Error_Characterizer.ipynb". The first code block launches a error characterizer. Simply view the image and enter the number of the type of error as listed on the python notebook. You can stop at any time and your labels will be kept. Once the characterizer is stopped, you can move to the second code block to print an error report of the dataset. To use this, enter the directory of the raw dataset you want to examine
+
+```python
+from src.raw_datset import raw_dataset, StatisticsFile
+import os
+from src.plots import plot_categorical_column, plot_stacked_errors_with_percent_legend, plot_stacked_errors_with_percent_legend_by_annotator_id
+
+directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025Data"
+```
+
+#### Create Hand Selected Datasets
+If you want to create a hand selected dataset for evaluation, you can use the python notebooks called "SelectNewDataset.ipynb" or "SelectNewDatasetByCollect.ipynb". These notebooks create a UI to select individual images or collects into a new directory. Enter a new_directory to create the new dataset and an old directory to copy from. When prompted, if no character is entered, then it will leave the image, and if any character is input, that image will be copied to the new directory. There is also multiple "move_mode" options, such as "copy" and "move" which either copies or moves the file respectively. "move" deletes it from the old dataset permanently. 
+
+```python
+from src.raw_datset import raw_dataset, StatisticsFile
+
+directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025Data"
+new_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Test_dataset"
+local_files = raw_dataset(directory)
+local_files.create_hand_selected_dataset(new_directory)
+# or
+local_files.create_hand_selected_dataset_by_collect(new_directory)
+```
+
+#### Label Star and Target Quality
+
+If you want to label star quality and target quality similar to Alex's MDP dataset, you can use the "CreateStar-TargetQualityDataset.ipynb". This copies or moves images labeled with a star quality and target quality. Both numbers must be entered in order for the annotation to count. Using move_mode, you can remove or keep the files in the original dataset.
+
+```python
+from src.raw_datset import raw_dataset
+
+directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025Data"
+new_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Test_dataset"
+local_files = raw_dataset(directory)
+local_files.create_target_quality_dataset(new_directory)
+```
+
+#### Create Calsat Dataset
 
 ### Coco Datasets
-
-### Error Characterizer
-
-### Create Hand Selected Datasets
-
-### Label Star and Target Quality
-
-### Create Calsat Dataset
