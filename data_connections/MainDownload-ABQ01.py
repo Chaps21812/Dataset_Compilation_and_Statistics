@@ -1,0 +1,21 @@
+from src.raw_datset import raw_dataset
+from src.coco_tools import silt_to_coco, merge_coco
+from src.preprocess_functions import raw_file
+from src.s3client import S3Client
+import os
+
+if __name__ == "__main__":
+    ABQ01_PATH = "third-party-data/PDS-ABQ-01/Satellite/Annotations/"
+    KWAJ01_PATH = "third-party-data/PDS-KWAJ01/Satellite/Annotations/"
+    LMNT01_PATH= "third-party-data/PDS-LMNT01/Satellite/Annotations/"
+    LMNT02_PATH = "third-party-data/PDS-LMNT02/Satellite/Annotations/"
+    RME01_PATH ="third-party-data/PDS-RME01/Satellite/Annotations/"
+    RME04_PATH ="third-party-data/PDS-RME04/Satellite/Annotations/"
+
+    ABQ01_folders = ["2025-06-16", "2025-06-18", "2025-06-23", "2025-06-24", "2025-06-25", "2025-06-26", "2025-06-30", "2025-07-01", "2025-07-07", "2025-07-08", "2025-07-09", "2025-07-14", "2025-07-15", "2025-07-16", "2025-07-17", "2025-07-18", "2025-07-21", "2025-07-22", "2025-07-23", "2025-07-24", "2025-07-25", "2025-07-28", "2025-07-29", "2025-07-30", "2025-07-31", "2025-08-01", "2025-08-04", "2025-08-05", "2025-08-06", "2025-08-07", "2025-08-08", "2025-08-11", "2025-08-12", "2025-08-13", "2025-08-14", "2025-08-15", "2025-08-18", "2025-08-19", "2025-08-20", "2025-08-21", "2025-08-22", "2025-08-25", "2025-08-26", "2025-08-27", "2025-08-28", "2025-08-29", "2025-09-02", "2025-09-03", "2025-09-04", "2025-09-05", "2025-09-08", "2025-09-09", "2025-09-10", "2025-09-11", "2025-09-15", "2025-09-16", "2025-09-17", "2025-09-18", "2025-09-19", "2025-09-22", "2025-09-23", "2025-09-24", "2025-09-25", "2025-09-26", "2025-09-29", "2025-09-30", "2025-10-01", "2025-10-02", "2025-10-03", "2025-10-06", "2025-10-07", "2025-10-08", "2025-10-09", "2025-10-14", "2025-10-15", "2025-10-16", "2025-10-17", "2025-10-20"]
+
+    downloader = S3Client(ABQ01_PATH)
+    for date in ABQ01_folders:
+        print(date)
+        downloader.download_annotation_dates(date, "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/ABQ01-2025_Annotations")
+

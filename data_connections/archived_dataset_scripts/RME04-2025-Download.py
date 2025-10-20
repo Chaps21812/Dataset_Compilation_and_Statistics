@@ -1,4 +1,4 @@
-from data_download_tool import download_data, summarize_s3_structure
+from data_connections.archived_dataset_scripts.data_download_tool import download_data, summarize_s3_structure
 from annotation_viewer import plot_annotations, plot_annotation_subset
 from pandas_statistics import file_path_loader
 from plots import *

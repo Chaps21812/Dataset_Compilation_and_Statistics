@@ -200,7 +200,7 @@ class S3Client:
                 if "image_set_id" in json_content:
                     filename = f"{json_content["image_set_id"]}.{json_content["sequence_id"]}"
                 else: 
-                    filename = np.random.randint(0,9223372036854775806)
+                    filename = str(np.random.randint(0,9223372036854775806))
 
                 
                 fits_filename = filename+".fits"
