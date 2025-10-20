@@ -148,3 +148,5 @@ SPACECRAFT= {   "44231":{ "name": "BeiDou-GEO-8", "sp3": "C01", "norad": "44231"
                  "36402":{ "name": "GLONASS-732 (COSMOS 2460)", "sp3": "R23", "norad": "36402" },
                  "45358":{ "name": "GLONASS-760 (COSMOS 2545)", "sp3": "R24", "norad": "45358" }
 }
+
+ERROR_TYPES = ["No Error", "Uncentered Box", "Severely Uncentered Box", "Missed Target", "Blank Box", "Silt Transpose Error", "Occlusion [Edge or star]", "Other", "Unknown", "Long Satellite Streak"]

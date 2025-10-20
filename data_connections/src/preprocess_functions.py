@@ -221,7 +221,7 @@ def raw_file(data: np.ndarray) -> np.ndarray:
     return  np.stack([data/65535*255]*3, axis=0).astype(np.uint8)
 
 if __name__=="__main__":
-        from coco_tools import silt_to_coco, satsim_to_coco, merge_coco
+        from data_connections.src.coco_tools import silt_to_coco, satsim_to_coco, merge_coco
         from preprocess_functions import channel_mixture, adaptiveIQR, zscale
 
         Process_pathE = "/mnt/c/Users/david.chaparro/Documents/Repos/Dataset-Statistics/data/PDS-RME04-2024-05-07"

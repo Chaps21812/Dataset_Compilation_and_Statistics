@@ -4,15 +4,18 @@ import os
 import json
 from astropy.io import fits
 from tqdm import tqdm
-from collect_stats import collect_stats, collect_satsim_stats, find_new_centroid, find_centroid_COM
-from documentation import write_count
-from plots import plot_single_annotation, plot_error_evaluator
-from target_injection import extract_segmented_patches_from_json_and_fits, inject_target_into_fits
+import numpy as np
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 import shutil
 from datetime import datetime
-import numpy as np
+
+
+from .collect_stats import collect_stats, collect_satsim_stats, _find_new_centroid, _find_centroid_COM
+from .documentation import write_count
+from .plots import plot_single_annotation, plot_error_evaluator, plot_animated_collect
+from .target_injection import extract_segmented_patches_from_json_and_fits, inject_target_into_fits
+from .constants import SPACECRAFT, ERROR_TYPES
 
 class PickleSerializable:
     def save(self, filename):
@@ -26,10 +29,14 @@ class PickleSerializable:
         with open(filename, 'rb') as f:
             return pickle.load(f)
 
-class PDStatistics_calculator(PickleSerializable):
+class StatisticsFile(PickleSerializable):
     def __init__(self):
         self.sample_attributes = pd.DataFrame()
         self.annotation_attributes = pd.DataFrame()
+        self.selected_fits_files = []
+        self.selected_annotation_files = []
+        self.current_index=0
+        self.collect_dict = {}
         
     def add_sample_attributes(self, item_sample:dict):
         sample = pd.DataFrame([item_sample])
@@ -39,18 +46,54 @@ class PDStatistics_calculator(PickleSerializable):
         annotation = pd.DataFrame(annotation_sample)
         self.annotation_attributes = pd.concat([self.annotation_attributes, annotation], ignore_index=True)
 
-class file_path_loader():
+    def summarize_sample_attribute_columns(self, attributes:str="sample_attributes", columns:list=[]):
+        """
+        Prints a summary table of unique values, counts, and percentages for given categorical columns.
+
+        Parameters:
+        - df: pandas DataFrame
+        - columns: list of column names to summarize
+        """
+        if attributes == "sample_attributes":
+            df = self.sample_attributes
+        elif attributes == "annotation_attributes":
+            df = self.annotation_attributes
+        else:
+            df = self.sample_attributes
+
+        for col in columns:
+            print(f"\nColumn: {col}")
+            print("-" * (len(col) + 9))
+            counts = df[col].value_counts(dropna=False)
+            percentages = df[col].value_counts(normalize=True, dropna=False) * 100
+
+            summary = pd.DataFrame({
+                'Value': counts.index.astype(str),
+                'Count': counts.values,
+                'Percentage': percentages.values
+            })
+
+            # Format percentage column
+            summary['Percentage'] = summary['Percentage'].map("{:.2f}%".format)
+
+            # Print as text table
+            print(summary.to_string(index=False))
+            
+
+class raw_dataset():
     def __init__(self, dataset_path:str):
         self.directory = dataset_path
         self.annotation_path = os.path.join(self.directory, "raw_annotation")
         self.fits_file_path = os.path.join(self.directory, "raw_fits")
-        if len([f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)]) > 0:
-            self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory,[f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)][0]))
-            self.statistics_filename = os.path.join(self.directory,[f for f in os.listdir(self.directory) if (f.endswith(".pkl") and "error" not in f)][0])
+        if "dataset_statistics.pkl" in os.listdir(self.directory):
+            self.statistics_file = StatisticsFile.load(os.path.join(self.directory,"dataset_statistics.pkl"))
+            self.statistics_filename = os.path.join(self.directory,"dataset_statistics.pkl")
             self.update_annotation_to_fits()
         else:
-            self.statistics_filename = os.path.join(self.directory,f"{os.path.basename(self.directory)}.pkl")
+            self.statistics_filename = os.path.join(self.directory,f"dataset_statistics.pkl")
             self.recalculate_statistics()
+            self.update_annotation_to_fits()
+        self.collect_dict = self.statistics_file.collect_dict
 
     def clear_cache(self):
         pathA = os.path.join(self.directory, "annotations")
@@ -76,21 +119,21 @@ class file_path_loader():
             full_fits_path = os.path.join(self.fits_file_path, fits_file)
             self.annotation_to_fits[full_annotation_path] = full_fits_path
 
-    def open_json(self, json_path:str):
+    def _open_json(self, json_path:str):
         with open(json_path, 'r') as f:
             json_content = json.load(f)
         return json_content
     
-    def open_fits(self, fits_path:str):
+    def _open_fits(self, fits_path:str):
         fits_content = fits.open(fits_path)
         return fits_content
 
-    def new_db(self):
-        self.statistics_file = PDStatistics_calculator()
+    def _new_db(self):
+        self.statistics_file = StatisticsFile()
         self.statistics_file.save(self.statistics_filename)
         print(f"New database created at {self.statistics_filename}")
 
-    def save_db(self):
+    def _save_db(self):
         self.statistics_file.save(self.statistics_filename)
         write_count(os.path.join(self.directory, "count.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
 
@@ -118,7 +161,7 @@ class file_path_loader():
                     os.remove(fits_path)
             except Exception as e:
                 print(f"Error deleting {path}: {e}")
-        self.save_db()
+        self._save_db()
 
     def delete_files_from_sample(self, path_series: pd.DataFrame):
         """
@@ -144,18 +187,31 @@ class file_path_loader():
                     os.remove(fits_path)
             except Exception as e:
                 print(f"Error deleting {path}: {e}")
-        self.save_db()
+        self._save_db()
     
     def recalculate_statistics(self):
         self.update_annotation_to_fits()
-        self.new_db()
+        self._new_db()
 
         for annotT,fitsT in tqdm(self.annotation_to_fits.items(), desc="Recalculating Statistics"):
             try:
-                json_content = self.open_json(annotT)
-                fits_content = self.open_fits(fitsT)
+                json_content = self._open_json(annotT)
+                fits_content = self._open_fits(fitsT)
                 hdu = fits_content[0].header
                 data = fits_content[0].data
+
+                if "image_set_id" in json_content.keys():
+                    if json_content["image_set_id"] not in self.statistics_file.collect_dict.keys():
+                        self.statistics_file.collect_dict[json_content["image_set_id"]] = []
+                        self.statistics_file.collect_dict[json_content["image_set_id"]].append({"json_path":annotT,"fits_path":fitsT})
+                    else:
+                        self.statistics_file.collect_dict[json_content["image_set_id"]].append({"json_path":annotT,"fits_path":fitsT})
+                else:
+                    if "No_Collect" not in self.statistics_file.collect_dict.keys():
+                        self.statistics_file.collect_dict["No_Collect"] = []
+                        self.statistics_file.collect_dict["No_Collect"].append({"json_path":annotT,"fits_path":fitsT})
+                    else:
+                        self.statistics_file.collect_dict["No_Collect"].append({"json_path":annotT,"fits_path":fitsT})
                 
                 hdu = fits_content[0].header
                 if "TRKMODE" in hdu.keys():
@@ -175,12 +231,12 @@ class file_path_loader():
             except Exception as e:
                 print(f"Error processing {annotT}: {e}")
 
-        self.save_db()
+        self._save_db()
 
     def __len__(self):
         return len(self.statistics_file.sample_attributes)
 
-    def correct_annotations(self, apply_changes:bool=False, require_approval:bool=True):
+    def recenter_bounding_boxes(self, apply_changes:bool=False, require_approval:bool=False):
         for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
             json_path = annotation
             fits_path = fits_pat
@@ -203,7 +259,7 @@ class file_path_loader():
 
                 original_bbox = (x_corner, y_corner, width, height)
                 # new_bbox = find_new_centroid(image, original_bbox)
-                new_bbox = find_centroid_COM(image, original_bbox)
+                new_bbox = _find_centroid_COM(image, original_bbox)
 
                 if require_approval:
                     plot_single_annotation(image, original_bbox, new_bbox, title)
@@ -239,9 +295,19 @@ class file_path_loader():
         self.update_annotation_to_fits()
         self.recalculate_statistics()
 
+    def reset_errors(self):
+        os.remove(os.path.join(self.directory, "errors.pkl"))
+
     def characterize_errors(self):
-        error_database = PDStatistics_calculator()
-        for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
+        if os.path.exists(os.path.join(self.directory, "errors.pkl")):
+            error_database = StatisticsFile.load(os.path.join(self.directory, "errors.pkl"))
+        else: 
+            error_database = StatisticsFile()
+
+        for image_index, (annotation, fits_pat) in tqdm(enumerate(self.annotation_to_fits.items())):
+            if image_index < error_database.current_index:
+                continue
+
             json_path = annotation
             fits_path = fits_pat
             bboxes = []
@@ -266,7 +332,6 @@ class file_path_loader():
                 if box["type"] == "line":
                     properties["error_type"] = 9
                     error_database.add_sample_attributes(properties)
-                    error_database.save(os.path.join(self.directory, "errors.pkl"))
                     plt.clf()   # Clears the current figure
                     plt.cla()   # Clears the current axes (optional)
                     plt.close()
@@ -285,10 +350,9 @@ class file_path_loader():
 
             if len(bboxes) ==0:
                 plot_error_evaluator(image, [], 0, properties)
-                error = error_input_prompt()
+                error = _error_input_prompt()
                 properties["error_type"] = error
                 error_database.add_sample_attributes(properties)
-                error_database.save(os.path.join(self.directory, "errors.pkl"))
                 plt.clf()   # Clears the current figure
                 plt.cla()   # Clears the current axes (optional)
                 plt.close()
@@ -296,20 +360,21 @@ class file_path_loader():
             else: 
                 for index in range(len(bboxes)):
                     plot_error_evaluator(image, bboxes, index, properties)
-                    error = error_input_prompt()
+                    error = _error_input_prompt()
                     properties["error_type"] = error
                     error_database.add_sample_attributes(properties)
-                    error_database.save(os.path.join(self.directory, "errors.pkl"))
                     plt.clf()   # Clears the current figure
                     plt.cla()   # Clears the current axes (optional)
                     plt.close()
                     clear_output(wait=True)
-        error_types = ["No Error", "Uncentered Box", "Severely Uncentered Box", "Missed Target", "Blank Box", "Silt Transpose Error", "Occlusion [Edge or star]", "Other", "Unknown", "Long Satellite Streak"]
-        error_database.sample_attributes['error_type_str'] = error_database.sample_attributes.apply(lambda row: error_types[row['error_type']] if row["error_type"] < len(error_types) else error_types[8], axis=1)
+
+            error_database.sample_attributes['error_type_str'] = error_database.sample_attributes.apply(lambda row: ERROR_TYPES[row['error_type']] if row["error_type"] < len(ERROR_TYPES) else ERROR_TYPES[8], axis=1)
+            error_database.current_index +=1
+            error_database.save(os.path.join(self.directory, "errors.pkl"))
 
     def inject_targets(self, segmentations_path:str, threshold_factor=1.2, bbox_scale=1.5):
         #Collect targets to inject
-        local_segmentations = file_path_loader(segmentations_path)
+        local_segmentations = raw_dataset(segmentations_path)
         target_array = []
         for annotation_path, fits_path in local_segmentations.annotation_to_fits.items():
             targets_to_inject = extract_segmented_patches_from_json_and_fits(annotation_path, fits_path,threshold_factor=threshold_factor, bbox_scale=bbox_scale)
@@ -401,12 +466,385 @@ class file_path_loader():
         self.update_annotation_to_fits()
         self.recalculate_statistics()
 
-def error_input_prompt():
+    def reset_subset_selection(self):
+        os.remove(os.path.join(self.directory, "subset.pkl"))
+
+    def create_hand_selected_dataset(self, new_dataset_directory:str, move_mode:str="copy"):
+        os.makedirs(new_dataset_directory, exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
+
+        if os.path.exists(os.path.join(self.directory, "subset.pkl")):
+            subset_database = StatisticsFile.load(os.path.join(self.directory, "subset.pkl"))
+        else: 
+            subset_database = StatisticsFile()
+
+        for image_index, (annotation, fits_pat) in tqdm(enumerate(self.annotation_to_fits.items())):
+            if image_index < subset_database.current_index:
+                continue
+
+            json_path = annotation
+            fits_path = fits_pat
+            bboxes = []
+            properties = {}
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            properties["fits_file"] = data["file"]["filename"]
+            properties["sensor"] = data["file"]["id_sensor"]
+            properties["QA"] = data["approved"]
+            properties["labeler_id"] = data["labeler_id"]
+            properties["request_id"] = data["request_id"]
+            properties["created"] = datetime.strptime(data["created"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["updated"] = datetime.strptime(data["updated"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["num_objects"] = len(data["objects"])
+
+            for j,box in enumerate(data["objects"]):
+                if box["type"] == "line":
+                    plt.clf()   # Clears the current figure
+                    plt.cla()   # Clears the current axes (optional)
+                    plt.close()
+                    clear_output(wait=True)
+                    continue
+                x_corner = box["x_min"]*image.shape[1]
+                y_corner = box["y_min"]*image.shape[0]
+                width = (box["x_max"]-box["x_min"])*image.shape[1]
+                height = (box["y_max"]-box["y_min"])*image.shape[0]
+                original_bbox = (x_corner, y_corner, width, height)
+                bboxes.append(original_bbox)
+
+
+            plot_error_evaluator(image, bboxes, 0, properties)
+            if _select_input_prompt():
+                subset_database.selected_annotation_files.append(json_path)
+                subset_database.selected_fits_files.append(fits_path)
+                if move_mode == "move":
+                    shutil.move(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                    shutil.move(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                elif move_mode == "copy":
+                    shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                    shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                else: 
+                    shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                    shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+            plt.clf()   # Clears the current figure
+            plt.cla()   # Clears the current axes (optional)
+            plt.close()
+            clear_output(wait=True)
+
+            subset_database.current_index +=1
+            subset_database.save(os.path.join(self.directory, "subset.pkl"))
+        self.recalculate_statistics()
+
+    def create_hand_selected_dataset_by_collect(self, new_dataset_directory:str, move_mode:str="copy"):
+        os.makedirs(new_dataset_directory, exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
+
+        if os.path.exists(os.path.join(self.directory, "collect_subset.pkl")):
+            subset_database = StatisticsFile.load(os.path.join(self.directory, "collect_subset.pkl"))
+        else: 
+            subset_database = StatisticsFile()
+
+        anis = None
+
+        for collect_index, (collect_id, paths) in tqdm(enumerate(self.collect_dict.items()), desc="Collect", total=len(self.collect_dict)):
+            if collect_index < subset_database.current_index:
+                continue
+            images_list = []
+            bboxes_list = []
+            attrs_list = []
+
+            index_list = {}
+            
+            for j, pathset in enumerate(paths):
+                json_path = pathset["json_path"]
+                fits_path = pathset["fits_path"]
+                bboxes = []
+                properties = {}
+                # Open and load the JSON file
+                with open(json_path, 'r') as f:
+                    data = json.load(f)
+                hdu = fits.open(fits_path)
+                hdul = hdu[0]
+                image = hdul.data
+                images_list.append(image)
+                index_list[data["sequence_id"]] = j
+                
+                properties["fits_file"] = data["file"]["filename"]
+                properties["sensor"] = data["file"]["id_sensor"]
+                properties["QA"] = data["approved"]
+                properties["labeler_id"] = data["labeler_id"]
+                properties["image_set_id"] = data["image_set_id"]
+                properties["sequence_id"] = data["sequence_id"]
+                properties["request_id"] = data["request_id"]
+                properties["created"] = datetime.strptime(data["created"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+                properties["updated"] = datetime.strptime(data["updated"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+                properties["num_objects"] = len(data["objects"])
+
+                for j,box in enumerate(data["objects"]):
+                    if box["type"] == "line":
+                        continue
+                    x_corner = box["x_min"]*image.shape[1]
+                    y_corner = box["y_min"]*image.shape[0]
+                    width = (box["x_max"]-box["x_min"])*image.shape[1]
+                    height = (box["y_max"]-box["y_min"])*image.shape[0]
+                    original_bbox = (x_corner, y_corner, width, height)
+                    bboxes.append(original_bbox)
+                bboxes_list.append(bboxes)
+                attrs_list.append(properties)
+
+            ordered_images = [images_list[index_list[k]] for k in sorted(index_list.keys())]
+            ordered_bboxes = [bboxes_list[index_list[k]] for k in sorted(index_list.keys())]
+            ordered_attrs = [attrs_list[index_list[k]] for k in sorted(index_list.keys())]
+
+            fig, ani = plot_animated_collect(ordered_images, ordered_bboxes, ordered_attrs)
+            from IPython.display import display, HTML
+            display(HTML(ani.to_jshtml()))  # reliable inline display
+            # ani.save("animation.mp4", writer="ffmpeg", fps=5)
+            # from IPython.display import Video
+            # display(Video("animation.mp4", embed=True))
+                        
+            if _select_input_prompt():
+                for pathset in paths:
+                    json_path = pathset["json_path"]
+                    fits_path = pathset["fits_path"]
+                    subset_database.selected_annotation_files.append(json_path)
+                    subset_database.selected_fits_files.append(fits_path)
+                    if move_mode == "move":
+                        shutil.move(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                        shutil.move(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                    elif move_mode == "copy":
+                        shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                        shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                    else: 
+                        shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                        shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+            # plt.clf()   # Clears the current figure
+            # plt.cla()   # Clears the current axes (optional)
+            # plt.close()
+            clear_output(wait=True)
+
+            subset_database.current_index +=1
+            subset_database.save(os.path.join(self.directory, "collect_subset.pkl"))
+        self.recalculate_statistics()
+
+    def create_calsat_dataset(self, new_dataset_directory, move_mode:str="copy"):
+        os.makedirs(new_dataset_directory, exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
+
+        if os.path.exists(os.path.join(self.directory, "calsats.pkl")):
+            subset_database = StatisticsFile.load(os.path.join(self.directory, "calsats.pkl"))
+        else: 
+            subset_database = StatisticsFile()
+
+        calsats = 0
+
+        for image_index, (annotation, fits_pat) in tqdm(enumerate(self.annotation_to_fits.items())):
+            json_path = annotation
+            fits_path = fits_pat
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+
+            try:
+                norad_id = data["file"]["filename"].split(".")[0].split("sat_")[1]
+                calsat = SPACECRAFT[norad_id]
+                if calsat is not None:
+                    subset_database.selected_annotation_files.append(json_path)
+                    subset_database.selected_fits_files.append(fits_path)
+                    if move_mode == "move":
+                        shutil.move(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                        shutil.move(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                    elif move_mode == "copy":
+                        shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                        shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                    else: 
+                        shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                        shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                    calsats += 1
+            except KeyError:
+                continue
+            except IndexError:
+                continue
+            subset_database.current_index +=1
+            subset_database.save(os.path.join(self.directory, "calsats.pkl"))
+        print(f"Num calsats: {calsats}")
+        self.recalculate_statistics()
+
+    def create_target_quality_dataset(self, new_dataset_directory:str, move_mode:str="copy"):
+        os.makedirs(new_dataset_directory, exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
+        os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
+
+        if os.path.exists(os.path.join(self.directory, "quality_subset.pkl")):
+            subset_database = StatisticsFile.load(os.path.join(self.directory, "quality_subset.pkl"))
+        else: 
+            subset_database = StatisticsFile()
+
+        for image_index, (annotation, fits_pat) in tqdm(enumerate(self.annotation_to_fits.items())):
+            if image_index < subset_database.current_index:
+                continue
+
+            json_path = annotation
+            fits_path = fits_pat
+            bboxes = []
+            properties = {}
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            properties["fits_file"] = data["file"]["filename"]
+            properties["sensor"] = data["file"]["id_sensor"]
+            properties["QA"] = data["approved"]
+            properties["labeler_id"] = data["labeler_id"]
+            properties["request_id"] = data["request_id"]
+            properties["created"] = datetime.strptime(data["created"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["updated"] = datetime.strptime(data["updated"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["num_objects"] = len(data["objects"])
+
+            for j,box in enumerate(data["objects"]):
+                if box["type"] == "line":
+                    plt.clf()   # Clears the current figure
+                    plt.cla()   # Clears the current axes (optional)
+                    plt.close()
+                    clear_output(wait=True)
+                    continue
+                x_corner = box["x_min"]*image.shape[1]
+                y_corner = box["y_min"]*image.shape[0]
+                width = (box["x_max"]-box["x_min"])*image.shape[1]
+                height = (box["y_max"]-box["y_min"])*image.shape[0]
+                original_bbox = (x_corner, y_corner, width, height)
+                bboxes.append(original_bbox)
+            plot_error_evaluator(image, bboxes, 0, properties)
+
+
+            star_quality = _select_star_quality()
+            target_quality = _select_target_quality()
+
+            if star_quality and target_quality:
+                subset_database.selected_annotation_files.append(json_path)
+                subset_database.selected_fits_files.append(fits_path)
+                if move_mode == "move":
+                    shutil.move(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                    shutil.move(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                elif move_mode == "copy":
+                    shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                    shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                else: 
+                    shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
+                    shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
+                with open(os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)), "r") as g:
+                    annotation_data = json.load(g)
+                    annotation_data["star_quality"] = star_quality
+                    annotation_data["target_quality"] = target_quality
+                with open(os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)), "w") as g:
+                    json.dump(os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)), g, indent=4)
+
+            plt.clf()   # Clears the current figure
+            plt.cla()   # Clears the current axes (optional)
+            plt.close()
+            clear_output(wait=True)
+
+            subset_database.current_index +=1
+            subset_database.save(os.path.join(self.directory, "quality_subset.pkl"))
+        self.recalculate_statistics()
+
+    def correct_annotations(self, apply_changes:bool=False, require_approval:bool=False):
+        for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
+            json_path = annotation
+            fits_path = fits_pat
+            title = os.path.basename(annotation)
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            for j,box in enumerate(data["objects"]):
+                if box["type"] == "line":
+                    continue
+
+                x_corner = box["x_min"]*image.shape[1]
+                y_corner = box["y_min"]*image.shape[0]
+                width = (box["x_max"]-box["x_min"])*image.shape[1]
+                height = (box["y_max"]-box["y_min"])*image.shape[0]
+
+                original_bbox = (x_corner, y_corner, width, height)
+                # new_bbox = find_new_centroid(image, original_bbox)
+                new_bbox = _find_centroid_COM(image, original_bbox)
+
+                if require_approval:
+                    plot_single_annotation(image, original_bbox, new_bbox, title)
+                    current_input = input("Keep New Annotation? [Enter any letter for yes]: ")
+                    plt.clf()   # Clears the current figure
+                    plt.cla()   # Clears the current axes (optional)
+                    plt.close()
+                    clear_output(wait=True)
+                    if current_input and apply_changes:
+                        new_bbox = (new_bbox[0]/image.shape[1], new_bbox[1]/image.shape[0], new_bbox[2]/image.shape[1], new_bbox[3]/image.shape[0])
+                        data["objects"][j]["x_min"] = new_bbox[0]
+                        data["objects"][j]["y_min"] = new_bbox[1]
+                        data["objects"][j]["x_max"] = new_bbox[0]+new_bbox[2]
+                        data["objects"][j]["y_max"] = new_bbox[1]+new_bbox[3]
+                        data["objects"][j]["x_center"] = (new_bbox[0]+new_bbox[2]/2)
+                        data["objects"][j]["y_center"] = (new_bbox[1]+new_bbox[3]/2)
+                        data["objects"][j]["bbox_width"] = new_bbox[2]
+                        data["objects"][j]["bbox_height"] = new_bbox[3]
+                else:
+                    new_bbox = (new_bbox[0]/image.shape[1], new_bbox[1]/image.shape[0], new_bbox[2]/image.shape[1], new_bbox[3]/image.shape[0])
+                    data["objects"][j]["x_min"] = new_bbox[0]
+                    data["objects"][j]["y_min"] = new_bbox[1]
+                    data["objects"][j]["x_max"] = new_bbox[0]+new_bbox[2]
+                    data["objects"][j]["y_max"] = new_bbox[1]+new_bbox[3]
+                    data["objects"][j]["x_center"] = (new_bbox[0]+new_bbox[2]/2)
+                    data["objects"][j]["y_center"] = (new_bbox[1]+new_bbox[3]/2)
+                    data["objects"][j]["bbox_width"] = new_bbox[2]
+                    data["objects"][j]["bbox_height"] = new_bbox[3]
+
+            # Save the updated JSON back to the same file
+            with open(json_path, 'w') as f:
+                json.dump(data, f, indent=4)
+        self.update_annotation_to_fits()
+        self.recalculate_statistics()
+
+
+def _error_input_prompt():
     current_input = input("Enter error number: ")
     if current_input:
         return int(current_input)
     else: 
         return 8
+    
+def _select_input_prompt():
+    current_input = input("Non-zero character to select ")
+    if current_input:
+        return True
+    else: 
+        return False
+
+def _select_star_quality():
+    current_input = input("Enter Star Quality (0=worst, 2=best)")
+    if current_input:
+        return True
+    else: 
+        return False
+    
+def _select_target_quality():
+    current_input = input("Enter Target Quality (0=worst, 2=best)")
+    if current_input:
+        return True
+    else: 
+        return False
 
 class satsim_path_loader():
     def __init__(self, dataset_path:str):
@@ -416,11 +854,11 @@ class satsim_path_loader():
         stats_files = [f for f in os.listdir(self.directory) if f.endswith(".pkl")]
         if len(stats_files) == 0:
             self.new_db(os.path.join(self.directory, os.path.basename(dataset_path) + "_statistics.pkl"))
-            self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory, os.path.basename(dataset_path) + "_statistics.pkl"))
+            self.statistics_file = StatisticsFile.load(os.path.join(self.directory, os.path.basename(dataset_path) + "_statistics.pkl"))
             self.statistics_filename = os.path.join(self.directory, os.path.basename(dataset_path) + "_statistics.pkl")
         else: 
             print(os.path.join(self.directory, stats_files[0]))
-            self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory, stats_files[0]))
+            self.statistics_file = StatisticsFile.load(os.path.join(self.directory, stats_files[0]))
             self.statistics_filename = os.path.join(self.directory,stats_files[0])
         self.update_annotation_to_fits()
     
@@ -466,7 +904,7 @@ class satsim_path_loader():
         return fits_content
 
     def new_db(self, filename=None):
-        self.statistics_file = PDStatistics_calculator()
+        self.statistics_file = StatisticsFile()
         if filename is None:
             self.statistics_file.save(self.statistics_filename)
             print(f"New database created at {self.statistics_filename}")
@@ -567,7 +1005,7 @@ class coco_path_loader():
             self.statistics_filename = os.path.join(dataset_path, f"{os.path.basename(dataset_path)}.pkl")
             self.recalculate_statistics()
         else:
-            self.statistics_file = PDStatistics_calculator.load(os.path.join(self.directory,[f for f in os.listdir(self.directory) if f.endswith(".pkl")][0]))
+            self.statistics_file = StatisticsFile.load(os.path.join(self.directory,[f for f in os.listdir(self.directory) if f.endswith(".pkl")][0]))
             self.statistics_filename = os.path.join(self.directory,[f for f in os.listdir(self.directory) if f.endswith(".pkl")][0])
         self.annotation_path = os.path.join(self.directory, "annotations")
         self.png_file_path = os.path.join(self.directory, "images")
@@ -588,7 +1026,7 @@ class coco_path_loader():
         return json_content
     
     def new_db(self):
-        self.statistics_file = PDStatistics_calculator()
+        self.statistics_file = StatisticsFile()
         self.statistics_file.save(self.statistics_filename)
         print(f"New database created at {self.statistics_filename}")
 
@@ -675,7 +1113,7 @@ class coco_path_loader():
                 height = (box["y_max"]-box["y_min"])*image.shape[0]
 
                 original_bbox = (x_corner, y_corner, width, height)
-                new_bbox = find_new_centroid(image, original_bbox)
+                new_bbox = _find_new_centroid(image, original_bbox)
                 plot_single_annotation(image, original_bbox, new_bbox, title)
 
                 current_input = input("Keep New Annotation? [Enter any letter for yes]: ")
@@ -713,7 +1151,7 @@ if __name__ == "__main__":
     # print(f"Num Samples: {len(local_files)}")
 
 
-    path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04_Raw/RME04Sat-2024-05-17-injected"
-    segmentation_path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Injection_targets"
-    local_files = file_path_loader(path)
-    local_files.inject_targets_from_numpy(segmentation_path)
+    path = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01_Raw"
+    for folder in os.listdir(path):
+        local_files = raw_dataset(os.path.join(path,folder))
+        local_files.create_calsat_dataset("/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/CalSatLMNT01-2024")

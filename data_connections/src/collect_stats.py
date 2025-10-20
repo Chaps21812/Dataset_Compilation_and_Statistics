@@ -2,12 +2,9 @@ from astropy.io import fits
 from datetime import datetime
 import numpy as np
 from math import atan2
-from plots import plot_image_with_line, z_scale_image
-import cv2
-import matplotlib.pyplot as plt
+from .constants import SPACECRAFT
 
-
-def directed_circular_stats(angles_deg:list) -> tuple[float, float, float]:
+def _directed_circular_stats(angles_deg:list) -> tuple[float, float, float]:
     """
     Compute the mean and spread of a list of angles using circular statistics.
 
@@ -38,7 +35,7 @@ def directed_circular_stats(angles_deg:list) -> tuple[float, float, float]:
 
     return mean_angle_deg, circular_std, R
 
-def circular_stats(angles_deg:list) -> tuple[float, float, float]:
+def _circular_stats(angles_deg:list) -> tuple[float, float, float]:
     """
     Compute circular mean and spread of undirected angles (mod 180°).
     
@@ -78,8 +75,15 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
 
     x_res = hdu["NAXIS1"]
     y_res = hdu["NAXIS2"]
+    
+
 
     sample_attributes["filename"] = json_content["file"]["filename"]
+    try:
+        norad_id = json_content["file"]["filename"].split(".")[0].split("sat_")[1]
+        sample_attributes["spacecraft"] = SPACECRAFT[norad_id]
+    except:
+        sample_attributes["spacecraft"] = None
     try: sample_attributes["id_sensor"] = json_content["file"]["id_sensor"]
     except KeyError: sample_attributes["id_sensor"] = "N/A"
     try: sample_attributes["QA"] = json_content["approved"]
@@ -223,7 +227,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         object_attributes.append(detection_dict)
 
     if len(streak_angles) > 0: 
-        mean_angle_deg, circular_std, R = directed_circular_stats(streak_angles)
+        mean_angle_deg, circular_std, R = _directed_circular_stats(streak_angles)
         sample_attributes["streak_direction_std"] = circular_std
         sample_attributes["streak_direction_mean"] = mean_angle_deg
         sample_attributes["streak_length_mean"] = np.mean(streak_lengths)
@@ -388,7 +392,7 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
         object_attributes.append(detection_dict)
 
     if len(streak_angles) > 0: 
-        mean_angle_deg, circular_std, R = directed_circular_stats(streak_angles)
+        mean_angle_deg, circular_std, R = _directed_circular_stats(streak_angles)
         sample_attributes["streak_direction_std"] = circular_std
         sample_attributes["streak_direction_mean"] = mean_angle_deg
         sample_attributes["streak_length_mean"] = np.mean(streak_lengths)
@@ -413,7 +417,7 @@ def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -
 
     return sample_attributes, object_attributes
 
-def find_centroid_COM(image, bbox, padding=10):
+def _find_centroid_COM(image, bbox, padding=10):
 
     width = max(5, bbox[2])
     height = max(5, bbox[3])
@@ -519,7 +523,7 @@ def find_centroid_COM(image, bbox, padding=10):
 
     return best_bbox
 
-def find_new_centroid(image, bbox, padding=20):
+def _find_new_centroid(image, bbox, padding=20):
     x_min = bbox[0]
     y_min = bbox[1]
     x_max = bbox[0]+bbox[2]

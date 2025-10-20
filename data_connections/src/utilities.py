@@ -1,6 +1,5 @@
-from pandas_statistics import file_path_loader
-from annotation_viewer import plot_annotations, plot_annotation_subset
-from plots import *
+from .plots import plot_annotations, plot_annotation_subset, detect_column_type, plot_categorical_column, plot_numerical_column, plot_time_column, plot_lines, plot_scatter
+from .raw_datset import raw_dataset
 import os
 from IPython.display import clear_output
 import torch
@@ -9,6 +8,9 @@ import torchvision
 import shutil
 from tqdm import tqdm
 from collections import Counter
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 def save_torch_script_model(model_path:str, output_path:str, name:str):
     model =  torchvision.models.detection.retinanet_resnet50_fpn()
@@ -31,7 +33,7 @@ def get_folders_in_directory(directory_path) ->list:
 def delete_large_annotations(storage_path, area=1200):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
-        local_files = file_path_loader(os.path.join(storage_path,file))
+        local_files = raw_dataset(os.path.join(storage_path,file))
         print(f"File: {file}, {len(local_files)}")
 
         image_attributes = local_files.statistics_file.sample_attributes
@@ -47,7 +49,7 @@ def summarize_local_files(storage_path):
     total_images = 0
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
-        local_files = file_path_loader(os.path.join(storage_path,file))
+        local_files = raw_dataset(os.path.join(storage_path,file))
         total_images += len(local_files)
         print(f"Path: {file} Num Samples: {len(local_files)}")
     print(f"Total Samples: {total_images}")
@@ -55,37 +57,37 @@ def summarize_local_files(storage_path):
 def clear_local_caches(storage_path):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
-        local_files = file_path_loader(os.path.join(storage_path,file))
+        local_files = raw_dataset(os.path.join(storage_path,file))
         local_files.clear_cache()
 
 def clear_local_cache(storage_path):
-    local_files = file_path_loader(storage_path)
+    local_files = raw_dataset(storage_path)
     local_files.clear_cache()
 
 def apply_bbox_corrections(storage_path):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
         print(file)
-        local_files = file_path_loader(os.path.join(storage_path,file))
+        local_files = raw_dataset(os.path.join(storage_path,file))
         local_files.correct_annotations(apply_changes=True, require_approval=False)
         
 def apply_bbox_corrections_list(paths:list):
     for file in paths:
         #Local file handling tool
         print(file)
-        local_files = file_path_loader(file)
+        local_files = raw_dataset(file)
         local_files.correct_annotations(apply_changes=True, require_approval=False)
         
 def recalculate_all_statistics(storage_path):
     for file in get_folders_in_directory(storage_path):
         print(file)
         #Local file handling tool
-        local_files = file_path_loader(os.path.join(storage_path,file))
+        local_files = raw_dataset(os.path.join(storage_path,file))
         local_files.recalculate_statistics()
 
 def generate_plots(storage_path):
     for file in get_folders_in_directory(storage_path):
-        local_files = file_path_loader(os.path.join(storage_path,file))
+        local_files = raw_dataset(os.path.join(storage_path,file))
 
         plots_save_path = os.path.join(storage_path,file, "plots")
         data_statistics = local_files.statistics_file
@@ -138,7 +140,7 @@ def generate_plots(storage_path):
         except: print("Plotting Error: Line Streaks")
 
 def regenerate_plots(storage_path):
-    local_files = file_path_loader(os.path.join(storage_path))
+    local_files = raw_dataset(os.path.join(storage_path))
 
     plots_save_path = os.path.join(storage_path, "plots")
     data_statistics = local_files.statistics_file
@@ -196,9 +198,6 @@ def _clear_plots():
     plt.close()
     clear_output(wait=True)
 
-from pandas_statistics import file_path_loader
-import os
-
 def get_folders_in_directory(directory_path):
     if not os.path.exists(directory_path):
         return []
@@ -211,7 +210,7 @@ def get_folders_in_directory(directory_path):
 def view_folders(storage_path):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
-        local_files = file_path_loader(file)
+        local_files = raw_dataset(file)
         print(f"{file}: {len(local_files)}")
 
 def count_images_in_datasets(storage_path):
@@ -239,13 +238,13 @@ def count_images_in_datasets(storage_path):
 def clear_cache(storage_path):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
-        local_files = file_path_loader(file)
+        local_files = raw_dataset(file)
         local_files.clear_cache()
 
 def recalculate_statistics(storage_path):
     for file in get_folders_in_directory(storage_path):
         #Local file handling tool
-        local_files = file_path_loader(file)
+        local_files = raw_dataset(file)
         local_files.recalculate_statistics()
 
 def get_list_attribute(directory, attribute:str):
@@ -368,6 +367,10 @@ def get_bbox_sizes(directory, save_directory=None, save_type="pdf", color="#AABB
     print(f"AVG area={np.average(bbox_areas):.2f}, Median area={np.median(bbox_areas):.2f}, Min area={np.min(bbox_areas):.2f}, max area={np.max(bbox_areas):.2f}")
     print(f"AVG width={np.average(bbox_widths):.2f}, Median width={np.median(bbox_widths):.2f}, Min width={np.min(bbox_widths):.2f}, max width={np.max(bbox_widths):.2f}")
     print(f"AVG height={np.average(bbox_heights):.2f}, Median height={np.median(bbox_heights):.2f}, Min height={np.min(bbox_heights):.2f}, max height={np.max(bbox_widths):.2f}")
+
+
+
+
 
 
 if __name__ == "__main__":

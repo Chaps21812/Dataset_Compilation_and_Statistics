@@ -7,13 +7,13 @@ import datetime as dt
 import numpy as np
 import copy
 import random
-from pandas_statistics import file_path_loader
+from .raw_datset import raw_dataset
 from tqdm import tqdm
 from astropy.io import fits
 from PIL import Image
-from collect_stats import collect_stats, collect_satsim_stats
-from image_stitching import generate_training_crops
-from Spacecraft import SPACECRAFT
+from .collect_stats import collect_stats, collect_satsim_stats
+from .image_chipping import generate_training_crops
+from .constants import SPACECRAFT
 
 def merge_categories(category_list:list):
     name_to_category = {}
@@ -95,9 +95,12 @@ def split_collections(collection_ids:dict, train_ratio=0.7, val_ratio=0.15, test
         train, test, split (tuple): List of files present in the train test split
     """
 
-    train_files = []
-    val_files = []
-    test_files = []
+    train_files = {}
+    val_files = {}
+    test_files = {}
+    train_len = 0
+    val_len= 0
+    test_len= 0
 
     # Ensure the ratios add up to 1
     if train_ratio + val_ratio + test_ratio != 1.0:
@@ -114,14 +117,17 @@ def split_collections(collection_ids:dict, train_ratio=0.7, val_ratio=0.15, test
     test_size = total_files - train_size - val_size  # The remainder will be the test set
 
     for key in all_collects:
-        if len(train_files) < train_size:
-            train_files.extend(collection_ids[key])
+        if train_len < train_size:
+            train_files[key] = collection_ids[key]
+            train_len += len(collection_ids[key])
             continue
-        if len(val_files) < val_size:
-            val_files.extend(collection_ids[key])
+        if val_len < val_size:
+            val_files[key] = collection_ids[key]
+            val_len += len(collection_ids[key])
             continue
-        if len(test_files) < test_size:
-            test_files.extend(collection_ids[key])
+        if test_len < test_size:
+            test_files[key] = collection_ids[key]
+            test_len += len(collection_ids[key])
             continue
 
     return train_files, val_files, test_files
@@ -183,13 +189,18 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
     catagories_queue = []
     collections_queue = {}
     id_to_index = {}
+    multiframe_annotations_dictionary = {}
     for directory in tqdm(coco_directories, desc="Processing COCO Datasets"):
         anotations_file = os.path.join(directory, "annotations", "annotations.json")
         with open(anotations_file, 'r') as f:
             annotations = json.load(f)
+        multiframe_annotation_file = os.path.join(directory, "multiframe_annotations", "multiframe_annotations.json")
+        with open(multiframe_annotation_file, 'r') as f:
+            multiframe_annotations = json.load(f)
         images_queue.extend(annotations["images"])
         annotations_queue.extend(annotations["annotations"])
         notes_queue.append({"info":annotations["info"], "notes":annotations["notes"], "directory": directory })
+        multiframe_annotations_dictionary = multiframe_annotations_dictionary | multiframe_annotations
     
         for index, item in enumerate(annotations["images"]):
             if item['collect_id'] not in collections_queue:
@@ -226,9 +237,11 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
     if train_test_split:
         titles = ["train","val","test"]
         file_list_split = split_collections(collections_queue, train_ratio=train_ratio, val_ratio=val_ratio, test_ratio=test_ratio)
-        for j,temp_list in enumerate(file_list_split):
+        for j, collection_dictionary in enumerate(file_list_split):
+            temp_list = [x for lst in collection_dictionary.values() for x in lst]
             indicies = [id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))] for single_path in temp_list]
             temp_anot_index = [annotations_id_to_index[id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))]] for single_path in temp_list]
+            new_multiframe_annotations = {cid:multiframe_annotations_dictionary[cid] for cid in collection_dictionary.keys()}
 
             ### For one large dataset
             # Save annotation data to corresponding train test json
@@ -263,6 +276,8 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
             data_attributes_obj=json.dumps(all_data, indent=4)
             with open(os.path.join(annotations_alias, "annotations.json"), "w") as outfile:
                 outfile.write(data_attributes_obj)
+            with open(os.path.join(multiframe_annotations_alias,"multiframe_annotations.json"), 'w') as f:
+                json.dump(new_multiframe_annotations, f)
 
             
             #Compressing images without copying them to folder to save on memory
@@ -282,7 +297,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         os.makedirs(data_folder, exist_ok=True)
         os.makedirs(new_images_folder, exist_ok=True)
         os.makedirs(new_annotations_folder, exist_ok=True)
-        # os.makedirs(multiframe_annotations_alias, exist_ok=True)
+        os.makedirs(multiframe_annotations_alias, exist_ok=True)
 
         all_data = {
             "info": info,
@@ -293,6 +308,8 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
         data_attributes_obj=json.dumps(all_data, indent=4)
         with open(os.path.join(new_annotations_folder, "annotations.json"), "w") as outfile:
             outfile.write(data_attributes_obj)
+        with open(os.path.join(multiframe_annotations_alias,"multiframe_annotations.json"), 'w') as f:
+            json.dump(multiframe_annotations_dictionary, f)
 
         #Compressing images without copying them to folder to save on memory
         if zip:
@@ -303,19 +320,22 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
 
 def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
     """
-    Converts a satasim generated dataset into a coco dataset
+    Converts a SILT bucket annotation dataset into a coco dataset
 
     Args:
-        path (list[str]): Input list of files to shuffle and generate a train test split
-        train_ratio (float): Ratio of training samples
-        val_ratio (float): Ratio of validation samples
-        test_ratio (float): Ratio of testing samples
+        silt_dataset_path (list[str]): Input list of files to shuffle and generate a train test split
+        include_sats (float): Ratio of training samples
+        include_stars (float): Ratio of validation samples
+        zip (float): Ratio of testing samples
+        convert_png (bool): Convert to an intermediate PNG  
+        process_func (src.preprocess_functions): Preprocess function to convert PNGs to
+        notes (str)
 
     Returns:
         train, test, split (tuple): List of files present in the train test split
     """
     path_to_annotation = {}
-    local_files =  file_path_loader(silt_dataset_path)
+    local_files =  raw_dataset(silt_dataset_path)
 
     ### For one large dataset
     #Make new data directory
@@ -567,7 +587,7 @@ def silt_to_coco_panoptic(silt_dataset_path:str, include_sats:bool=True, include
         train, test, split (tuple): List of files present in the train test split
     """
     path_to_annotation = {}
-    local_files =  file_path_loader(silt_dataset_path)
+    local_files =  raw_dataset(silt_dataset_path)
 
     filetype="png"
 

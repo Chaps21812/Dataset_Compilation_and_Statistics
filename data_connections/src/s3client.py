@@ -6,19 +6,28 @@ from astropy.io import fits
 from tqdm import tqdm
 from collections import Counter
 import numpy as np
-
-from pandas_statistics import PDStatistics_calculator
-import json
-from collect_stats import collect_stats
-from documentation import write_count
 import requests
-from astropy.io import fits
-from KEY import UDL_KEY
+import json
 from datetime import datetime
+from botocore.exceptions import ClientError
+
+from .raw_datset import StatisticsFile
+from .collect_stats import collect_stats
+from .documentation import write_count
+from .UDL_KEY import UDL_KEY
 
 
 class S3Client:
     def __init__(self, directory:str):
+        """
+        Scans a directory on the S3 silt bucket and has functions to download and organize FITS files. Needs a key from the AWS AI_Autonomy Dev cloud to work correctly, and a refreshed UDL key to download stuff.
+
+        Args:
+            directory (str): Annotation directory on AWS S3 bucket. 
+
+        Returns:
+            S3Client
+        """
         self.client = boto3.client('s3')
         self.bucket = "silt-annotations"
         self.directory = directory
@@ -39,8 +48,16 @@ class S3Client:
         self.errors = 0
         self.get_data(self.directory)
 
-
     def get_data(self, directory):
+        """
+        Matches all annotations in the directory to their corresponding FITS file. If no FITS file is recorded, it searches UDL
+
+        Args:
+            directory (str): S3 directory of all data.
+
+        Returns:
+            None
+        """
         paginator = self.client.get_paginator('list_objects_v2')
         page_iterator = paginator.paginate(Bucket=self.bucket, Prefix=directory)
 
@@ -75,6 +92,15 @@ class S3Client:
             print(f"{d}: {count}")
 
     def _create_annotation_mapping(self) -> dict:
+        """
+        If the fits file and annotations are in the same folder in SILT, it finds the corresponding FITS file and pairs them. 
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         for annotation_filename, annot_full_path in self.annotation_filename_to_path.items():
             fits_file = annotation_filename.replace(".json", ".fits")
             if fits_file in self.fits_filename_to_path:
@@ -86,12 +112,21 @@ class S3Client:
 
         return self.annotation_to_fits
 
-    def download_annotation(self, annotation_path:str) -> dict:
+    def _download_annotation(self, annotation_path:str) -> dict:
+        """
+        Downloads a JSON annotation from the S3 Bucket
+
+        Args:
+            annotation_path (str): S3 json annotation path
+
+        Returns:
+            json_content (dict): Dictionary of JSON annotation Content
+        """
         response = self.client.get_object(Bucket=self.bucket, Key=annotation_path)
         json_content = json.loads(response['Body'].read().decode('utf-8'))
         return json_content
     
-    def download_fits(self, fits_path:str) -> fits:
+    def _download_fits(self, fits_path:str) -> fits:
         response = self.client.get_object(Bucket=self.bucket, Key=fits_path)
         fits_content = io.BytesIO(response['Body'].read())
         return fits.open(fits_content)
@@ -131,12 +166,6 @@ class S3Client:
                             self._contains_objects[keyString] = date
                         else:
                             self._contains_unknown_structure[keyString] = date
-                            # content = self.download_annotation(keyString)
-                            # try: 
-                            #     content["objects"]
-                            #     self._contains_objects[keyString] = date
-                            # except KeyError:
-                            #     self._contains_unknown_structure[keyString] = date
         normal_structure = list(self._contains_objects.values())
         weird_structure = list(self._contains_unknown_structure.values())
 
@@ -150,17 +179,12 @@ class S3Client:
             weird_count = weird_dates.get(date, 0)
             print(f"{date}: normal={normal_count} missing_objects={weird_count}")
 
-    def download_annotation_dates(self, date:str, download_directory:str, statistics_filename:str=None):
-        db = PDStatistics_calculator()
-        annotations_path = os.path.join(download_directory, "raw_annotation")
-        fits_path = os.path.join(download_directory, "raw_fits")
-        if statistics_filename is None: statistics_filename=os.path.basename(download_directory)
-        statistics_filename = f"{statistics_filename}_Statistics.pkl"
+    def download_annotation_dates(self, date:str, download_directory:str, sort_by_date = True):
+        db = StatisticsFile()
         os.makedirs(download_directory, exist_ok=True)
-        os.makedirs(annotations_path, exist_ok=True)
-        os.makedirs(fits_path, exist_ok=True)
 
         counter = Counter()
+        collect_ids = {}
 
         date = datetime.strptime(date, "%Y-%m-%d").date()
 
@@ -171,14 +195,20 @@ class S3Client:
             object_attributes = []
 
             try:
-                random_int = np.random.randint(0,9223372036854775806)
-                fits_filename = str(random_int)+".fits"
-                json_filename = str(random_int)+".json"
+                json_content = self._download_annotation(annotT)
 
-                json_content = self.download_annotation(annotT)
+                if "image_set_id" in json_content:
+                    filename = f"{json_content["image_set_id"]}.{json_content["sequence_id"]}"
+                else: 
+                    filename = np.random.randint(0,9223372036854775806)
+
+                
+                fits_filename = filename+".fits"
+                json_filename = filename+".json"
+
                 if annotT in self.annotation_to_fits:
                     fitsT = self.annotation_to_fits[annotT]
-                    fits_content = self.download_fits(fitsT)
+                    fits_content = self._download_fits(fitsT)
                 else:
                     url = f"https://unifieddatalibrary.com/udl/skyimagery/getFile/{json_content["image_id"]}"
                     headers = {
@@ -187,7 +217,7 @@ class S3Client:
                     }
                     with requests.get(url, headers=headers, stream=True) as response:
                         response.raise_for_status()  # Raises an exception for HTTP errors
-                        file_location=os.path.join(fits_path, fits_filename)
+                        file_location=os.path.join(download_directory, "temp_fits.fits")
                         with open(file_location, "wb") as f:
                             for chunk in response.iter_content(chunk_size=8192):
                                 if chunk:  # filter out keep-alive chunks
@@ -202,13 +232,22 @@ class S3Client:
                 sample_attributes, object_attributes = collect_stats(json_content, fits_content)
                 counter.update([sample_attributes["dates"]])
 
-                # os.makedirs(os.path.join(fits_path,sample_attributes["dates"]), exist_ok=True)
-                # os.makedirs(os.path.join(annotations_path,sample_attributes["dates"]), exist_ok=True)
-                # fits_local_path = os.path.join(fits_path, sample_attributes["dates"])
-                # annot_local_path = os.path.join(annotations_path, sample_attributes["dates"])
-
-                fits_local_path = os.path.join(fits_path, fits_filename)
-                annot_local_path = os.path.join(annotations_path, json_filename)
+                if sort_by_date:
+                    #With Date Sorting
+                    json_annotation_folder = os.path.join(download_directory,sample_attributes["dates"], "raw_annotation")
+                    fits_annotation_folder = os.path.join(download_directory,sample_attributes["dates"], "raw_fits")
+                    os.makedirs(json_annotation_folder, exist_ok=True)
+                    os.makedirs(fits_annotation_folder, exist_ok=True)
+                    annot_local_path = os.path.join(json_annotation_folder, json_filename)
+                    fits_local_path = os.path.join(fits_annotation_folder, fits_filename)
+                else:
+                    #Without Date Sorting
+                    json_annotation_folder = os.path.join(download_directory, "raw_annotation")
+                    fits_annotation_folder = os.path.join(download_directory, "raw_fits")
+                    os.makedirs(json_annotation_folder, exist_ok=True)
+                    os.makedirs(fits_annotation_folder, exist_ok=True)
+                    annot_local_path = os.path.join(json_annotation_folder, json_filename)
+                    fits_local_path = os.path.join(fits_annotation_folder, fits_filename)
 
                 sample_attributes["json_path"] = annot_local_path
                 sample_attributes["fits_path"] = fits_local_path
@@ -216,20 +255,40 @@ class S3Client:
                     dictionary["json_path"] = annot_local_path
                     dictionary["fits_path"] = fits_local_path
 
+                if "image_set_id" in json_content:
+                    if json_content["image_set_id"] not in db.collect_dict.keys():
+                        db.collect_dict[json_content["image_set_id"]] = []
+                        db.collect_dict[json_content["image_set_id"]].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+                    else:
+                        db.collect_dict[json_content["image_set_id"]].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+                else: 
+                    if "No_Collect" not in db.collect_dict.keys():
+                        db.collect_dict["No_Collect"] = []
+                        db.collect_dict["No_Collect"].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+                    else:
+                        db.collect_dict["No_Collect"].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+
                 fits_content.writeto(fits_local_path, overwrite=True)
                 with open(annot_local_path, "w") as f:
                     json.dump(json_content, f, indent=4)
             
                 db.add_sample_attributes(sample_attributes)
                 db.add_annotation_attributes(object_attributes)
+            
+            except ClientError:
+                print(f"Key expired on date: {date}")
+                break
 
+            except UnboundLocalError:
+                pass
+                print(f"No JSON found: {annotT}")
+        
             except Exception as e:
                 print(f"Error processing {annotT}: {type(e).__name__}: {e}")
 
-            db.save(os.path.join(download_directory, statistics_filename))
         write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
-    def download_data(self, download_directory:str, statistics_filename:str=None):
+    def download_data(self, download_directory:str, sort_by_date = True):
         """
         Downloads data from AWS S3 and collects statistics.
         
@@ -238,7 +297,7 @@ class S3Client:
         download_directory (str): The local directory to save downloaded data.
         statistics_filename (str): The filename for the statistics file.
         """
-        db = PDStatistics_calculator()
+        db = StatisticsFile()
         annotations_path = os.path.join(download_directory, "raw_annotation")
         fits_path = os.path.join(download_directory, "raw_fits")
         if statistics_filename is None: statistics_filename=os.path.basename(download_directory)
@@ -254,14 +313,17 @@ class S3Client:
             sample_attributes = {}
             object_attributes = []
             try:
-                json_content = self.download_annotation(annotT)
-                fits_content = self.download_fits(fitsT)
+                json_content = self._download_annotation(annotT)
+                fits_content = self._download_fits(fitsT)
 
-                random_int = np.random.randint(0,9223372036854775806)
-                fits_filename = str(random_int)+".fits"
-                json_filename = str(random_int)+".json"
-                # fits_filename = os.path.basename(fitsT)
-                # json_filename = os.path.basename(annotT)
+                json_content = self._download_annotation(annotT)
+
+                if "image_set_id" in json_content:
+                    filename = f"{json_content["image_set_id"]}.{json_content["sequence_id"]}"
+                else: 
+                    filename = np.random.randint(0,9223372036854775806)
+                fits_filename = filename+".fits"
+                json_filename = filename+".json"
 
                 hdu = fits_content[0].header
 
@@ -272,13 +334,16 @@ class S3Client:
                 sample_attributes, object_attributes = collect_stats(json_content, fits_content)
                 counter.update([sample_attributes["dates"]])
 
-                # os.makedirs(os.path.join(fits_path,sample_attributes["dates"]), exist_ok=True)
-                # os.makedirs(os.path.join(annotations_path,sample_attributes["dates"]), exist_ok=True)
-                # fits_local_path = os.path.join(fits_path, sample_attributes["dates"])
-                # annot_local_path = os.path.join(annotations_path, sample_attributes["dates"])
-
-                fits_local_path = os.path.join(fits_path, fits_filename)
-                annot_local_path = os.path.join(annotations_path, json_filename)
+                if sort_by_date:
+                    #With Date Sorting
+                    os.makedirs(os.path.join(fits_path,sample_attributes["dates"]), exist_ok=True)
+                    os.makedirs(os.path.join(annotations_path,sample_attributes["dates"]), exist_ok=True)
+                    fits_local_path = os.path.join(fits_path, sample_attributes["dates"], fits_filename)
+                    annot_local_path = os.path.join(annotations_path, sample_attributes["dates"], json_filename)
+                else:
+                    #Without Date Sorting
+                    fits_local_path = os.path.join(fits_path, fits_filename)
+                    annot_local_path = os.path.join(annotations_path, json_filename)
 
                 sample_attributes["json_path"] = annot_local_path
                 sample_attributes["fits_path"] = fits_local_path
@@ -299,7 +364,7 @@ class S3Client:
             db.save(os.path.join(download_directory, statistics_filename))
         write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
-    def download_UDL_data(self, download_directory:str, Authorization_key:str=UDL_KEY):
+    def download_UDL_data(self, download_directory:str, Authorization_key:str=UDL_KEY, sort_by_date = True):
         """
         Downloads data from AWS S3 and collects statistics.
         
@@ -309,7 +374,7 @@ class S3Client:
         statistics_filename (str): The filename for the statistics file.
         """
 
-        db = PDStatistics_calculator()
+        db = StatisticsFile()
         db
         annotations_path = os.path.join(download_directory, "raw_annotation")
         fits_path = os.path.join(download_directory, "raw_fits")
@@ -325,17 +390,19 @@ class S3Client:
             sample_attributes = {}
             object_attributes = []
             try:
-                json_content = self.download_annotation(annot_path)
+                json_content = self._download_annotation(annot_path)
+                if "image_set_id" in json_content:
+                    filename = f"{json_content["image_set_id"]}.{json_content["sequence_id"]}"
+                else: 
+                    filename = np.random.randint(0,9223372036854775806)
+                fits_filename = filename+".fits"
+                json_filename = filename+".json"
+
                 url = f"https://unifieddatalibrary.com/udl/skyimagery/getFile/{json_content["image_id"]}"
                 headers = {
                     "Authorization": f"Basic {Authorization_key}",
                     "accept": "application/octet-stream"
                 }
-
-                random_int = np.random.randint(0,9223372036854775806)
-                fits_filename = str(random_int)+".fits"
-                json_filename = str(random_int)+".json"
-
                 with requests.get(url, headers=headers, stream=True) as response:
                     response.raise_for_status()  # Raises an exception for HTTP errors
                     file_location=os.path.join(fits_path, fits_filename)
@@ -358,8 +425,16 @@ class S3Client:
                 counter.update([sample_attributes["dates"]])
 
 
-                fits_local_path = os.path.join(fits_path, fits_filename)
-                annot_local_path = os.path.join(annotations_path, json_filename)
+                if sort_by_date:
+                    #With Date Sorting
+                    os.makedirs(os.path.join(fits_path,sample_attributes["dates"]), exist_ok=True)
+                    os.makedirs(os.path.join(annotations_path,sample_attributes["dates"]), exist_ok=True)
+                    fits_local_path = os.path.join(fits_path, sample_attributes["dates"], fits_filename)
+                    annot_local_path = os.path.join(annotations_path, sample_attributes["dates"], json_filename)
+                else:
+                    #Without Date Sorting
+                    fits_local_path = os.path.join(fits_path, fits_filename)
+                    annot_local_path = os.path.join(annotations_path, json_filename)
 
                 sample_attributes["json_path"] = annot_local_path
                 sample_attributes["fits_path"] = fits_local_path
@@ -386,6 +461,6 @@ class S3Client:
 
 
 if __name__ == "__main__":
-    aws_directory = "third-party-data/PDS-ABQ-01/Satellite/Annotations/"
+    aws_directory = "third-party-data/PDS-RME01/Satellite/Annotations/"
     s3_client = S3Client(aws_directory)
-    s3_client.download_annotation_dates("2025-08-12","/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Testing_Download/By_date_annotations" )
+    s3_client.download_annotation_dates("2025-10-14","/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Testing_Download/By_date_annotations" )

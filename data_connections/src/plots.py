@@ -5,9 +5,14 @@ import pandas as pd
 import os
 import re
 from typing import Union
+import tqdm
 from astropy.visualization import ZScaleInterval
 import matplotlib.gridspec as gridspec
-from preprocess_functions import _iqr_log
+from .preprocess_functions import _iqr_log
+from matplotlib.animation import FuncAnimation
+import json 
+from astropy.io import fits
+# from .raw_datset import raw_dataset, satsim_path_loader
 
 #This code was AI generated. I would love to spend time meticulously making plots, but I think my time is better spent analyzing them rather than adjusting details on a plot. 
 
@@ -627,3 +632,297 @@ def z_scale_image(image:np.ndarray) -> np.ndarray:
     norm = ZScaleInterval(contrast=0.2)
     zscaled_data = norm(image)
     return zscaled_data
+
+def plot_stacked_errors_by_date(df):
+    """
+    Creates a stacked bar chart of error types by string-formatted date.
+
+    Parameters:
+    - df: Pandas DataFrame with 'created' (string) and 'error_type' (categorical string)
+    """
+    # Group and count errors by 'created' date and 'error_type'
+    grouped = df.groupby(['created', 'error_type_str']).size().unstack(fill_value=0)
+
+    # Sort rows and columns for consistent plotting
+    grouped = grouped.sort_index(axis=0).sort_index(axis=1)
+
+    # Plotting
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    bottom = None
+    colors = plt.cm.tab20.colors  # Up to 20 distinct colors
+    error_types = grouped.columns.tolist()
+
+    for i, error_type in enumerate(error_types):
+        counts = grouped[error_type]
+        ax.bar(grouped.index, counts, bottom=bottom, 
+               label=error_type, color=colors[i % len(colors)])
+        bottom = counts if bottom is None else bottom + counts
+
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Error Count")
+    ax.set_title("Stacked Error Types by Date")
+    ax.legend(title="Error Type", bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+def plot_stacked_errors_with_percent_legend_by_annotator_id(df):
+    """
+    Plots a stacked bar chart of error types by date string.
+    Adds count and percentage in the legend for each error_type.
+
+    Parameters:
+    - df: Pandas DataFrame with 'created' and 'error_type' columns (both as strings)
+    """
+    # Group and count errors
+    grouped = df.groupby(['labeler_id', 'error_type_str']).size().unstack(fill_value=0)
+    grouped = grouped.sort_index(axis=0).sort_index(axis=1)
+
+    # Total number of errors (all types)
+    total_samples = grouped.sum().sum()
+
+    # Plot setup
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bottom = [0] * len(grouped)
+    colors = plt.cm.tab20.colors
+    error_types = grouped.columns.tolist()
+
+    for i, error_type in enumerate(error_types):
+        counts = grouped[error_type]
+        total_for_type = counts.sum()
+        percent = (total_for_type / total_samples) * 100
+
+        label = f"{error_type} ({total_for_type}, {percent:.1f}%)"
+
+        ax.bar(grouped.index, counts, bottom=bottom,
+               label=label, color=colors[i % len(colors)])
+
+        # Update bottom for next stack
+        bottom = [btm + val for btm, val in zip(bottom, counts)]
+
+    # Labels and formatting
+    ax.set_xlabel("Annotator")
+    ax.set_ylabel("Error Count")
+    ax.set_title("Stacked Error Types by Annotator")
+    ax.legend(title="Error Type (Count, % of total)", bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+def plot_stacked_errors_with_percent_legend(df):
+    """
+    Plots a stacked bar chart of error types by date string.
+    Adds count and percentage in the legend for each error_type.
+
+    Parameters:
+    - df: Pandas DataFrame with 'created' and 'error_type' columns (both as strings)
+    """
+    # Group and count errors
+    grouped = df.groupby(['created', 'error_type_str']).size().unstack(fill_value=0)
+    grouped = grouped.sort_index(axis=0).sort_index(axis=1)
+
+    # Total number of errors (all types)
+    total_samples = grouped.sum().sum()
+
+    # Plot setup
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bottom = [0] * len(grouped)
+    colors = plt.cm.tab20.colors
+    error_types = grouped.columns.tolist()
+
+    for i, error_type in enumerate(error_types):
+        counts = grouped[error_type]
+        total_for_type = counts.sum()
+        percent = (total_for_type / total_samples) * 100
+
+        label = f"{error_type} ({total_for_type}, {percent:.1f}%)"
+
+        ax.bar(grouped.index, counts, bottom=bottom,
+               label=label, color=colors[i % len(colors)])
+
+        # Update bottom for next stack
+        bottom = [btm + val for btm, val in zip(bottom, counts)]
+
+    # Labels and formatting
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Error Count")
+    ax.set_title("Stacked Error Types by Date")
+    ax.legend(title="Error Type (Count, % of total)", bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+def plot_animated_collect(images_list: list, bboxes_list:list, attributes_list:dict):
+    """
+    Plots an image with all annotations.
+
+    Args:
+        image (np.ndarray): The image to display.
+        annotations (list): List of annotation dictionaries.
+    """
+    mpl_images = []
+    mpl_bboxes = []
+    mpl_texts = []
+
+    for image,bboxes,attributes in zip(images_list, bboxes_list, attributes_list):
+        mpl_images.append(_iqr_log(image))
+        text = ""
+        for key,value in attributes.items():
+            text = text+f"{key}: {value}\n"
+        mpl_texts.append(text)
+        rects = []
+        for bbox in bboxes:
+            # Draw all annotations
+            rect = patches.Rectangle(
+                (bbox[0], bbox[1]),
+                bbox[2],
+                bbox[3],
+                linewidth=2,
+                edgecolor='red',
+                facecolor='none'
+            )
+            rects.append(rect)
+            # ax_top.add_patch(rect)
+            # ax_top.plot(bbox[0]+bbox[2]/2, bbox[1]+bbox[3]/2, '.', color="red", alpha=.5)
+        mpl_bboxes.append(rects)
+
+    fig = plt.figure(figsize=(16, 6))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[1.5, 1])  # 2 rows, 2 cols
+
+    ax_top = fig.add_subplot(gs[0, 0])
+    ax_br = fig.add_subplot(gs[0, 1])
+
+    # Plot
+    fig.suptitle("Collect View")
+
+    # Plot the first image
+    im = ax_top.imshow(mpl_images[0], cmap='gray')
+    ax_top.set_title(f'Image {attributes["fits_file"]}')
+
+    # Add text in the third subplot
+    ax_br.axis('off')
+    txt = ax_br.text(0.01, 0.5, mpl_texts[0], va='center', fontsize=12)
+
+    def update(frame):
+        # Update the image in the top axis
+        im.set_array(mpl_images[frame])
+        
+        # Update the line in the bottom-right axis
+        txt.set_text(mpl_texts[frame])
+        
+        return [im, txt]  # Return all changed artists
+
+    ani = FuncAnimation(fig, update, frames=len(images_list), interval=200, blit=True)
+    return fig, ani
+
+
+# def plot_annotation_subset(pandas_library:pd.DataFrame, loader, view_satellite:bool=False, view_star:bool=False, view_image:bool=True):
+#     """
+#     Plots annotations from a dataset.
+
+#     Parameters:
+#     dataset_path (str): The path to the dataset directory.
+#     view_satellite (bool): Whether to plot satellite annotations.
+#     view_star (bool): Whether to plot star annotations.
+#     view_image (bool): Whether to plot the image with annotations.
+#     """
+
+#     dataset_path = loader.directory
+#     annotation_view_path = os.path.join(dataset_path, "annotation_view")
+#     os.makedirs(annotation_view_path, exist_ok=True)
+
+
+
+#     for json_path in tqdm(pandas_library["json_path"].unique(), desc="Plotting annotations", unit="file"):
+#         fits_path = loader.annotation_to_fits[json_path]
+#         with open(json_path, 'r') as file:
+#             annotation = json.load(file)
+#         fits_file = fits.open(fits_path)
+#         hdu = fits_file[0].header
+#         raw_data = fits_file[0].data
+
+#         if "data" in annotation.keys():
+#             annotation = annotation["data"]
+
+#         #The XY coordinates are reverse intentionally. Beware!
+#         y_res = hdu["NAXIS2"]
+#         x_res = hdu["NAXIS1"]
+
+#         noise = np.std(raw_data)
+#         median_pixel = np.median(raw_data)
+
+#         data = z_scale_image(raw_data)
+#         if view_image: plot_all_annotations(data, annotation["objects"], (x_res,y_res), json_path, dpi=500)
+#         for index,object in enumerate(annotation["objects"]):
+#             x_cord= object["x_center"]*x_res
+#             y_cord= object["y_center"]*y_res
+
+#             if x_cord < 0 or y_cord < 0 or x_cord > data.shape[1] or y_cord > data.shape[0]:
+#                 continue
+
+#             half = 50
+#             x_start = max(0, x_cord - half)
+#             x_end   = min(data.shape[1], x_cord + half)
+#             y_start = max(0, y_cord - half)
+#             y_end   = min(data.shape[0], y_cord + half)
+
+#             window = raw_data[int(y_start):int(y_end), int(x_start):int(x_end)]
+#             local_minimum = np.min(window)
+#             local_std = np.std(window)
+#             signal = raw_data[int(y_cord), int(x_cord)]
+#             snr_tuple = (object["x_center"]*x_res, object["y_center"]*y_res,"Prom: {}".format((signal-local_minimum)/local_std))
+
+#             if object['class_name']=="Satellite": 
+#                 if view_satellite: plot_image_with_bbox(data,object['x_center']*x_res,object['y_center']*y_res,object['x_max']*x_res-object['x_min']*x_res,index, json_path, dpi=500, snr=snr_tuple)
+
+#             if object['class_name']=="Star": 
+#                 if "x_start" in object.keys():
+#                     x1 = object['x_start']
+#                     y1 = object['y_start']
+#                     x2 = object['x_end']
+#                     y2 = object['y_end']
+#                 else:
+#                     x1 = object['x1']
+#                     y1 = object['y1']
+#                     x2 = object['x2']
+#                     y2 = object['y2']
+#                 if x1 < 0 or y1 < 0 or x2 < 0 or y2 < 0 or x1 > data.shape[1] or y1 > data.shape[0] or x2 > data.shape[1] or y2 > data.shape[0]:
+#                     continue
+#                 if view_star: plot_image_with_line(data,x1*x_res,y1*y_res,x2*x_res,y2*y_res,index, json_path, dpi=500, snr=snr_tuple)
+
+# def plot_annotations(dataset_path:str, view_satellite:bool=False, view_star:bool=False, view_image:bool=True):
+#     """
+#     Plots annotations from a dataset.
+
+#     Parameters:
+#     dataset_path (str): The path to the dataset directory.
+#     view_satellite (bool): Whether to plot satellite annotations.
+#     view_star (bool): Whether to plot star annotations.
+#     view_image (bool): Whether to plot the image with annotations.
+#     """
+
+#     loader = raw_dataset(dataset_path)
+#     annotation_view_path = os.path.join(dataset_path, "annotation_view")
+#     os.makedirs(annotation_view_path, exist_ok=True)
+
+#     for json_path,fits_path in tqdm(loader.annotation_to_fits.items(), desc="Plotting annotations", unit="file"):
+#         with open(json_path, 'r') as file:
+#             annotation = json.load(file)
+#         fits_file = fits.open(fits_path)
+#         hdu = fits_file[0].header
+#         data = fits_file[0].data
+
+#         #The XY coordinates are reverse intentionally. Beware!
+#         x_res = hdu["NAXIS2"]
+#         y_res = hdu["NAXIS1"]
+
+#         data = z_scale_image(data)
+#         if view_image: plot_all_annotations(data, annotation["objects"], (x_res,y_res), json_path, dpi=500)
+#         for index,object in enumerate(annotation["objects"]):
+#             if object['class_name']=="Satellite": 
+#                 if view_satellite: plot_image_with_bbox(data,object['x_center']*x_res,object['y_center']*y_res,object['x_max']*x_res-object['x_min']*x_res,index, json_path, dpi=500)
+
+#             if object['class_name']=="Star": 
+#                 if view_star: plot_image_with_line(data,object['x1']*x_res,object['y1']*y_res,object['x2']*x_res,object['y2']*y_res,index, json_path, dpi=500)
+
