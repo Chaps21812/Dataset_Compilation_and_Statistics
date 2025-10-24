@@ -1,4 +1,4 @@
-from .plots import plot_annotations, plot_annotation_subset, detect_column_type, plot_categorical_column, plot_numerical_column, plot_time_column, plot_lines, plot_scatter
+from .plots import detect_column_type, plot_categorical_column, plot_numerical_column, plot_time_column, plot_lines, plot_scatter
 from .raw_datset import raw_dataset
 import os
 from IPython.display import clear_output
@@ -216,24 +216,28 @@ def view_folders(storage_path):
 def count_images_in_datasets(storage_path):
     training_set_directories = ["train", "test", "val"]
     raw_directories =  ["raw_annotation", "raw_fits"]
-    for file in get_folders_in_directory(storage_path):
-        #Local file handling tool 
-        if "raw_annotation" in file:
-            for subfolder in raw_directories:
-                directory = os.path.join(file)
-                total_images = os.listdir(directory)
-                print(f"{directory}: {len(total_images)}")
-                
-        subfolders = os.listdir(file)
-        if "images" in subfolders:
-            directory = os.path.join(file, "images")
+    total=0
+    folder_list = get_folders_in_directory(storage_path)
+    if "raw_annotation" in [os.path.basename(fold) for fold in folder_list]:
+        directory = os.path.join(folder_list[0])
+        total_images = os.listdir(directory)
+        total+=len(total_images)
+        print(f"{directory}: {len(total_images)}")
+
+    elif "images" in [os.path.basename(fold) for fold in folder_list]:
+        directory = os.path.join(folder_list[0], "images")
+        total_images = os.listdir(directory)
+        total+=len(total_images)
+        print(f"{directory}: {len(total_images)}")
+
+    elif "train" in [os.path.basename(fold) for fold in folder_list]:
+        for subfolder in training_set_directories:
+            directory = os.path.join(folder_list[0], subfolder, "images")
             total_images = os.listdir(directory)
+            total+=len(total_images)
             print(f"{directory}: {len(total_images)}")
-        if "train" in subfolders:
-            for subfolder in training_set_directories:
-                directory = os.path.join(file, subfolder, "images")
-                total_images = os.listdir(directory)
-                print(f"{directory}: {len(total_images)}")
+        total+=len(total_images)
+    return total
 
 def clear_cache(storage_path):
     for file in get_folders_in_directory(storage_path):

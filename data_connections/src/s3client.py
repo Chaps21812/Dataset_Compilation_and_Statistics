@@ -99,7 +99,7 @@ class S3Client:
             None
 
         Returns:
-            None
+            self.annotation_to_fits (dict): Dictionary matching annotation path to the fits path
         """
         for annotation_filename, annot_full_path in self.annotation_filename_to_path.items():
             fits_file = annotation_filename.replace(".json", ".fits")
@@ -127,11 +127,29 @@ class S3Client:
         return json_content
     
     def _download_fits(self, fits_path:str) -> fits:
+        """
+        Downloads a FITS file from the SILT S3 Bucket
+
+        Args:
+            annotation_path (str): S3 fits image path
+
+        Returns:
+            json_content (dict): fits object
+        """
         response = self.client.get_object(Bucket=self.bucket, Key=fits_path)
         fits_content = io.BytesIO(response['Body'].read())
         return fits.open(fits_content)
     
     def summarize_s3_structure(self):
+        """
+        Searches through a folder and gives a count of the number of files in each directory
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         print(f"# of annotations: {len(self.annotation_filename_to_path)}")
         print(f"# of fits: {len(self.fits_filename_to_path)}")
         print(f"# of folders: {len(self.folders)}")
@@ -141,6 +159,15 @@ class S3Client:
         #     print(f"Filename: {tuplee[0]}, Count: {tuplee[1]}")
 
     def summarize_s3_file_sizes(self):
+        """
+        Summarizes the file sizes in the listed SILT s3 bucket. Good for validation
+
+        Args:
+            annotation_path (str): S3 fits image path
+
+        Returns:
+            json_content (dict): fits object
+        """
         array = np.array(self.file_sizes)
         summation = np.sum((array > 265).astype(int))
         avg = np.average(array)
@@ -150,6 +177,15 @@ class S3Client:
         print(f"# of Annots above 265B: {summation}")
 
     def check_annotations(self):
+        """
+        Checks to see how many images are missing from a bucket
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         paginator = self.client.get_paginator('list_objects_v2')
         page_iterator = paginator.paginate(Bucket=self.bucket, Prefix=self.directory)
 
@@ -180,11 +216,21 @@ class S3Client:
             print(f"{date}: normal={normal_count} missing_objects={weird_count}")
 
     def download_annotation_dates(self, date:str, download_directory:str, sort_by_date = True):
+        """
+        Downloads annotations and images from SILT or UDL. Given a annotation date, you can download all annotations for that day. 
+
+        Args:
+            date (str): Annotation date, you can find it when the s3 bucket is initialized
+            download_directory (str): Local path to store downloaded data
+            sort_by_date (bool): Saves files in date sorted folders according to collect date
+
+        Returns:
+            None
+        """
         db = StatisticsFile()
         os.makedirs(download_directory, exist_ok=True)
 
         counter = Counter()
-        collect_ids = {}
 
         date = datetime.strptime(date, "%Y-%m-%d").date()
 
@@ -290,12 +336,14 @@ class S3Client:
 
     def download_data(self, download_directory:str, sort_by_date = True):
         """
-        Downloads data from AWS S3 and collects statistics.
-        
-        Parameters:
-        aws_directory (str): The S3 directory to download data from.
-        download_directory (str): The local directory to save downloaded data.
-        statistics_filename (str): The filename for the statistics file.
+        Downloads matching annotations in the download directory. Does not pull from UDL, useful for data annotated before May 2025. 
+
+        Args:
+            download_directory (str): Local path to store downloaded data
+            sort_by_date (bool): Saves files in date sorted folders according to collect date
+
+        Returns:
+            None
         """
         db = StatisticsFile()
         annotations_path = os.path.join(download_directory, "raw_annotation")
@@ -321,7 +369,7 @@ class S3Client:
                 if "image_set_id" in json_content:
                     filename = f"{json_content["image_set_id"]}.{json_content["sequence_id"]}"
                 else: 
-                    filename = np.random.randint(0,9223372036854775806)
+                    filename = str(np.random.randint(0,9223372036854775806))
                 fits_filename = filename+".fits"
                 json_filename = filename+".json"
 
@@ -366,19 +414,19 @@ class S3Client:
 
     def download_UDL_data(self, download_directory:str, Authorization_key:str=UDL_KEY, sort_by_date = True):
         """
-        Downloads data from AWS S3 and collects statistics.
-        
-        Parameters:
-        aws_directory (str): The S3 directory to download data from.
-        download_directory (str): The local directory to save downloaded data.
-        statistics_filename (str): The filename for the statistics file.
+        Download unmatched data from the UDL. This does not sort
+
+        Args:
+            download_directory (str): Local path to store downloaded data
+            sort_by_date (bool): Saves files in date sorted folders according to collect date
+
+        Returns:
+            None
         """
 
         db = StatisticsFile()
-        db
         annotations_path = os.path.join(download_directory, "raw_annotation")
         fits_path = os.path.join(download_directory, "raw_fits")
-        statistics_filename = f"{os.path.basename(download_directory)}_Statistics.pkl"
         os.makedirs(download_directory, exist_ok=True)
         os.makedirs(annotations_path, exist_ok=True)
         os.makedirs(fits_path, exist_ok=True)
@@ -394,7 +442,7 @@ class S3Client:
                 if "image_set_id" in json_content:
                     filename = f"{json_content["image_set_id"]}.{json_content["sequence_id"]}"
                 else: 
-                    filename = np.random.randint(0,9223372036854775806)
+                    filename = str(np.random.randint(0,9223372036854775806))
                 fits_filename = filename+".fits"
                 json_filename = filename+".json"
 
@@ -454,7 +502,6 @@ class S3Client:
             # except Exception as e:
             #     print(f"Error processing {annot_path}: {e}")
 
-            db.save(os.path.join(download_directory, statistics_filename))
         write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
 

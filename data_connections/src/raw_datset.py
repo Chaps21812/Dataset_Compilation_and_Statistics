@@ -9,13 +9,16 @@ import matplotlib.pyplot as plt
 from IPython.display import clear_output
 import shutil
 from datetime import datetime
+import ipywidgets as widgets
+from IPython.display import display
 
-
+from .astrometric_localization import detect_stars, match_to_catalogue, skycoord_to_pixels
 from .collect_stats import collect_stats, collect_satsim_stats, _find_new_centroid, _find_centroid_COM
 from .documentation import write_count
-from .plots import plot_single_annotation, plot_error_evaluator, plot_animated_collect
+from .plots import plot_single_annotation, plot_error_evaluator, plot_animated_collect, plot_star_selection
 from .target_injection import extract_segmented_patches_from_json_and_fits, inject_target_into_fits
 from .constants import SPACECRAFT, ERROR_TYPES
+from .preprocess_functions import iqr_log
 
 class PickleSerializable:
     def save(self, filename):
@@ -82,6 +85,16 @@ class StatisticsFile(PickleSerializable):
 
 class raw_dataset():
     def __init__(self, dataset_path:str):
+        """
+        Raw dataset that gathers information about data downloaded from UDL. Enables curation, allows annotation correction, custom annotations, statistics, and more. 
+
+        Args:
+            dataset_path (str): Path to raw dataset
+
+        Returns:
+            self
+        """
+
         self.directory = dataset_path
         self.annotation_path = os.path.join(self.directory, "raw_annotation")
         self.fits_file_path = os.path.join(self.directory, "raw_fits")
@@ -96,6 +109,15 @@ class raw_dataset():
         self.collect_dict = self.statistics_file.collect_dict
 
     def clear_cache(self):
+        """
+        Deletes preprocessed data that is turned into coco datasets
+
+        Args:
+            None
+        Returns:
+            None
+        """
+
         pathA = os.path.join(self.directory, "annotations")
         pathB = os.path.join(self.directory, "images")
         if os.path.exists(pathA):
@@ -106,6 +128,15 @@ class raw_dataset():
             print(f"Removed: {pathB}")
         
     def update_annotation_to_fits(self):
+        """
+        Scans the raw directory file and matches corresponding fits files and annotations. Useful for error checking
+
+        Args:
+            None
+        Returns:
+            None
+        """
+
         self.annotations = os.listdir(self.annotation_path)
         self.fits_files = os.listdir(self.fits_file_path)
         self.annotation_to_fits = {}
@@ -119,21 +150,60 @@ class raw_dataset():
             full_fits_path = os.path.join(self.fits_file_path, fits_file)
             self.annotation_to_fits[full_annotation_path] = full_fits_path
 
-    def _open_json(self, json_path:str):
+    def _open_json(self, json_path:str) -> dict:
+        """
+        Opens a json file stored locally.
+
+        Args:
+            json_path (str): Local path to json annotation
+
+        Returns:
+            json_content (dict): Contents of desired json
+        """
+
         with open(json_path, 'r') as f:
             json_content = json.load(f)
         return json_content
     
     def _open_fits(self, fits_path:str):
+        """
+        Open fits file
+
+        Args:
+            fits_path (str): Local path to fits file
+
+        Returns:
+            fits_content (fits): Raw fits file data
+        """
+
         fits_content = fits.open(fits_path)
         return fits_content
 
     def _new_db(self):
+        """
+        Deletes the old statistics database and creats a new one
+
+        Args:
+            None
+            
+        Returns:
+            None
+        """
+
         self.statistics_file = StatisticsFile()
         self.statistics_file.save(self.statistics_filename)
         print(f"New database created at {self.statistics_filename}")
 
     def _save_db(self):
+        """
+        Saves info in the statistics dataframe
+
+        Args:
+            None
+            
+        Returns:
+            None
+        """
         self.statistics_file.save(self.statistics_filename)
         write_count(os.path.join(self.directory, "count.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
 
@@ -190,6 +260,15 @@ class raw_dataset():
         self._save_db()
     
     def recalculate_statistics(self):
+        """
+        Calculates the statistics that plots information about our dataset. 
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         self.update_annotation_to_fits()
         self._new_db()
 
@@ -237,6 +316,33 @@ class raw_dataset():
         return len(self.statistics_file.sample_attributes)
 
     def recenter_bounding_boxes(self, apply_changes:bool=False, require_approval:bool=False):
+        """
+        Resets the error characterization. 
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
+
+
+        '''
+                {
+            "type": "line",
+            "class_name": "Satellite",
+            "class_id": 1,
+            "x1": 0.39021124192350176,
+            "y1": 0.8454258609775411,
+            "x2": 0.38390235781024695,
+            "y2": 0.8424744035365839,
+            "x_center": 0.38705679986687436,
+            "y_center": 0.8439501322570625,
+            "source": "turk_new",
+            "correlation_id": "f1d3d283-5246-4008-ad78-00bb7f5a7c75",
+            "index": 4,
+            "iso_flux": 1651756
+        }'''
         for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
             json_path = annotation
             fits_path = fits_pat
@@ -296,9 +402,27 @@ class raw_dataset():
         self.recalculate_statistics()
 
     def reset_errors(self):
+        """
+        Resets the error characterization. 
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         os.remove(os.path.join(self.directory, "errors.pkl"))
 
     def characterize_errors(self):
+        """
+        Creates a UI to label and classify errors in a dataset. Only works in python notebook. Each number is associated with an error code. 
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         if os.path.exists(os.path.join(self.directory, "errors.pkl")):
             error_database = StatisticsFile.load(os.path.join(self.directory, "errors.pkl"))
         else: 
@@ -467,9 +591,28 @@ class raw_dataset():
         self.recalculate_statistics()
 
     def reset_subset_selection(self):
+        """
+        Resets the temp file that selects and moves items into a new dataset. 
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         os.remove(os.path.join(self.directory, "subset.pkl"))
 
     def create_hand_selected_dataset(self, new_dataset_directory:str, move_mode:str="copy"):
+        """
+        Creates a UI to hand select a dataset by image. Only runs in jupyter notebook, press any key and enter to select an image. Press enter to leave the collect.
+
+        Args:
+            new_dataset_directory (str): The directory of the new dataset to copy or move files to
+            move_mode (bool): "copy" copies the original file to the new directory. "move" removes the file from the old dataset and places it in the new dataset
+
+        Returns:
+            None
+        """
         os.makedirs(new_dataset_directory, exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
@@ -541,6 +684,16 @@ class raw_dataset():
         self.recalculate_statistics()
 
     def create_hand_selected_dataset_by_collect(self, new_dataset_directory:str, move_mode:str="copy"):
+        """
+        Creates a UI to hand select a dataset by collect ID. Only runs in jupyter notebook, press any key and enter to select a collect. Press enter to leave the collect.
+
+        Args:
+            new_dataset_directory (str): The directory of the new dataset to copy or move files to
+            move_mode (bool): "copy" copies the original file to the new directory. "move" removes the file from the old dataset and places it in the new dataset
+
+        Returns:
+            None
+        """
         os.makedirs(new_dataset_directory, exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
@@ -634,6 +787,16 @@ class raw_dataset():
         self.recalculate_statistics()
 
     def create_calsat_dataset(self, new_dataset_directory, move_mode:str="copy"):
+        """
+        Creates a dataset with Calsats registered in the constants SPACECRAFT dictionary. 
+
+        Args:
+            new_dataset_directory (str): The directory of the new dataset to copy or move files to
+            move_mode (bool): "copy" copies the original file to the new directory. "move" removes the file from the old dataset and places it in the new dataset
+
+        Returns:
+            None
+        """
         os.makedirs(new_dataset_directory, exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
@@ -678,6 +841,16 @@ class raw_dataset():
         self.recalculate_statistics()
 
     def create_target_quality_dataset(self, new_dataset_directory:str, move_mode:str="copy"):
+        """
+        Creates a UI which labels a raw dataset with star quality and target quality. Only runs in a jupyter notebook.
+
+        Args:
+            new_dataset_directory (str): The directory of the new dataset to copy or move files to
+            move_mode (bool): "copy" copies the original file to the new directory. "move" removes the file from the old dataset and places it in the new dataset
+
+        Returns:
+            None
+        """
         os.makedirs(new_dataset_directory, exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
@@ -759,6 +932,16 @@ class raw_dataset():
         self.recalculate_statistics()
 
     def correct_annotations(self, apply_changes:bool=True, require_approval:bool=False):
+        """
+        Applies bounding box recentroiding to annotations. 
+
+        Args:
+            require_approval (bool): If True, enters a manual mode to approve each recentroid. Only works in python notebook
+            apply_changes (bool): Only applicable to manual approval mode. If True, it applies the changes of recentroiding. If False, no recentroiding is applied. 
+
+        Returns:
+            None
+        """
         for annotation, fits_pat in tqdm(self.annotation_to_fits.items()):
             json_path = annotation
             fits_path = fits_pat
@@ -817,6 +1000,74 @@ class raw_dataset():
         self.update_annotation_to_fits()
         self.recalculate_statistics()
 
+    def plate_solve(self):
+        if os.path.exists(os.path.join(self.directory, "wcs.pkl")):
+            wcs_database = StatisticsFile.load(os.path.join(self.directory, "wcs.pkl"))
+        else: 
+            wcs_database = StatisticsFile()
+        for image_index, (annotation, fits_pat) in tqdm(enumerate(self.annotation_to_fits.items())):
+            submit_flag = False
+            if image_index < wcs_database.current_index:
+                continue
+
+            json_path = annotation
+            fits_path = fits_pat
+            bboxes = []
+            properties = {}
+            # Open and load the JSON file
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            hdu = fits.open(fits_path)
+            hdul = hdu[0]
+            image = hdul.data
+
+            properties["fits_file"] = data["file"]["filename"]
+            properties["sensor"] = data["file"]["id_sensor"]
+            properties["QA"] = data["approved"]
+            properties["labeler_id"] = data["labeler_id"]
+            properties["request_id"] = data["request_id"]
+            properties["created"] = datetime.strptime(data["created"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["updated"] = datetime.strptime(data["updated"], "%Y-%m-%dT%H:%M:%S.%f%z").strftime("%Y-%m-%d")
+            properties["num_objects"] = len(data["objects"])
+
+            for j,box in enumerate(data["objects"]):
+                if box["type"] == "line":
+                    continue
+
+
+                x_corner = box["x_min"]*image.shape[1]
+                y_corner = box["y_min"]*image.shape[0]
+                width = (box["x_max"]-box["x_min"])*image.shape[1]
+                height = (box["y_max"]-box["y_min"])*image.shape[0]
+
+                original_bbox = (x_corner, y_corner, width, height)
+                bboxes.append(original_bbox)
+
+
+            points = plot_star_selection(image, bboxes, 0, attributes=properties)
+
+
+            plt.close()
+            clear_output(wait=False)
+            print
+            # new_bbox = (new_bbox[0]/image.shape[1], new_bbox[1]/image.shape[0], new_bbox[2]/image.shape[1], new_bbox[3]/image.shape[0])
+            # data["objects"][j]["x_min"] = new_bbox[0]
+            # data["objects"][j]["y_min"] = new_bbox[1]
+            # data["objects"][j]["x_max"] = new_bbox[0]+new_bbox[2]
+            # data["objects"][j]["y_max"] = new_bbox[1]+new_bbox[3]
+            # data["objects"][j]["x_center"] = (new_bbox[0]+new_bbox[2]/2)
+            # data["objects"][j]["y_center"] = (new_bbox[1]+new_bbox[3]/2)
+            # data["objects"][j]["bbox_width"] = new_bbox[2]
+            # data["objects"][j]["bbox_height"] = new_bbox[3]
+
+
+            # Save the updated JSON back to the same file
+            with open(json_path, 'w') as f:
+                json.dump(data, f, indent=4)
+            wcs_database.current_index +=1
+            wcs_database.save(os.path.join(self.directory, "errors.pkl"))
+        self.update_annotation_to_fits()
+        self.recalculate_statistics()
 
 def _error_input_prompt():
     current_input = input("Enter error number: ")

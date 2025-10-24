@@ -83,10 +83,10 @@ def split_files(file_list, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15) -> 
 
 def split_collections(collection_ids:dict, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15) -> tuple:
     """
-    Generates a train test split given a list of files. 
+    Generates a train test split given a dictionary with keys being collect ids connected with a list of paths to each file
 
     Args:
-        input_data (list[str]): Input list of files to shuffle and generate a train test split
+        collection_ids (dict[str, list[str]]): Dict of collect_id with a list of fits file paths associated with the collect
         train_ratio (float): Ratio of training samples
         val_ratio (float): Ratio of validation samples
         test_ratio (float): Ratio of testing samples
@@ -134,13 +134,12 @@ def split_collections(collection_ids:dict, train_ratio=0.7, val_ratio=0.15, test
 
 def split_attribute(collection_ids:dict, attribute_values:dict, num_splits:int) -> tuple:
     """
-    Generates a train test split given a list of files. 
+    Generates an ordered split of given a dictionary with keys being collect ids ad a function of an attribute in the dataset. 
 
     Args:
-        input_data (list[str]): Input list of files to shuffle and generate a train test split
-        train_ratio (float): Ratio of training samples
-        val_ratio (float): Ratio of validation samples
-        test_ratio (float): Ratio of testing samples
+        collection_ids (dict[str, list[str]]): Dict of collect_id with a list of fits file paths associated with the collect
+        attribute_values (dict[str, list[float]]): Dict of collect_id with a list of numeric attributes from each image in the collect
+        num_splits (int): Number of partitions to divide your data into
 
     Returns:
         train, test, split (tuple): List of files present in the train test split
@@ -182,6 +181,22 @@ def split_attribute(collection_ids:dict, attribute_values:dict, num_splits:int) 
     return partitions
 
 def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", train_test_split:bool=False, train_ratio=0.8, val_ratio=0.10, test_ratio=0.10, zip:bool=False):
+    """
+    Generates a coco dataset from a list of coco datasets and compiles them into one destination. Generates a train test split based on collect.
+
+    Args:
+        coco_directories (list[str]): List of paths of coco datasets. Raw datasets must be converted to coco before merging
+        destination_path (str): Destination of the merged dataset
+        notes (str): Notes to add onto the dataset annotation file for future use
+        train_test_split (bool): Bool to create a train test split or not
+        train_ratio (float): Ratio of training samples
+        val_ratio (float): Ratio of validation samples
+        test_ratio (float): Ratio of testing samples
+        zip (bool): Number of partitions to divide your data into
+
+    Returns:
+        None
+    """
     path_to_image = []
     images_queue = []
     annotations_queue = []
@@ -318,15 +333,15 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
             for image in tqdm(path_to_image, desc="Copying images", total=len(path_to_image)):
                 shutil.copy(image, new_images_folder)
 
-def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
+def silt_to_coco(raw_dataset_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
     """
     Converts a SILT bucket annotation dataset into a coco dataset
 
     Args:
-        silt_dataset_path (list[str]): Input list of files to shuffle and generate a train test split
-        include_sats (float): Ratio of training samples
-        include_stars (float): Ratio of validation samples
-        zip (float): Ratio of testing samples
+        raw_dataset_path (list[str]): Input list of files to shuffle and generate a train test split
+        include_sats (bool): Ratio of training samples
+        include_stars (bool): Ratio of validation samples
+        zip (bool): Ratio of testing samples
         convert_png (bool): Convert to an intermediate PNG  
         process_func (src.preprocess_functions): Preprocess function to convert PNGs to
         notes (str)
@@ -335,13 +350,13 @@ def silt_to_coco(silt_dataset_path:str, include_sats:bool=True, include_stars:bo
         train, test, split (tuple): List of files present in the train test split
     """
     path_to_annotation = {}
-    local_files =  raw_dataset(silt_dataset_path)
+    local_files =  raw_dataset(raw_dataset_path)
 
     ### For one large dataset
     #Make new data directory
-    images_folder=os.path.join(silt_dataset_path, "images")
-    annotations_folder=os.path.join(silt_dataset_path, "annotations")
-    multiframe_annotations_folder=os.path.join(silt_dataset_path, "multiframe_annotations")
+    images_folder=os.path.join(raw_dataset_path, "images")
+    annotations_folder=os.path.join(raw_dataset_path, "annotations")
+    multiframe_annotations_folder=os.path.join(raw_dataset_path, "multiframe_annotations")
     if os.path.exists(images_folder) and os.path.isdir(images_folder):
         shutil.rmtree(images_folder)
         print(f"Deleted folder: {images_folder}")
@@ -1016,6 +1031,19 @@ def satsim_to_coco(satsim_path:str, output_dataset:str, include_sats:bool=True, 
                 shutil.move(destination_path,new_file_name)
 
 def partition_dataset(coco_directories:str, destination_paths:list[str], partition_attribute:str=None, dataset_size:int=None, notes:str=""):
+    """
+    Partitions coco datasets into multiple partitions based on a partition attribute. It splits datasets into least to greatest by collect. 
+
+    Args:
+        coco_directories (list[str]): Coco dataset to partition or reduce
+        destination_paths (list[str]): Directories to split this coco dataset into
+        partition_attribute (str): String attribute of the image specific attribute to sort by
+        dataset_size (int): Limit to the size of the dataset
+        notes (str): Notes to add onto the dataset annotation file for future use
+
+    Returns:
+        None
+    """
     path_to_image = []
     images_queue = []
     annotations_queue = []

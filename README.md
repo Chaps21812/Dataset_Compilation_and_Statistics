@@ -79,7 +79,7 @@ local.correct_annotations(require_approval=False)
 
 #### Target Injection
 
-
+`inject_targets_from_numpy` takes a raw dataset and injects targets prepared in a numpy array and injects them. Ask our Kevin Phan about how to format numpy arrays. Given a directory of saved numpy arrays, this function injects the targets into any raw file. 
 
 #### Error Characterizer
 
@@ -122,4 +122,59 @@ local_files.create_target_quality_dataset(new_directory)
 
 #### Create Calsat Dataset
 
+You can create a dataset of calsats only by using the following code. The code can be found in the "CreateCalsatDataset.ipynb" file. 
+
+```python
+from src.raw_datset import raw_dataset
+
+directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025_Annotations/2025-04-08"
+new_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025_Annotations/Calsattest"
+dataset = raw_dataset(directory)
+dataset.create_calsat_dataset(new_directory, "copy")
+```
+
 ### Coco Datasets
+
+Once a raw dataset has been processed and corrected, you can create coco datasets with various attributes, including a train test split, sample limited datasets, and sorting datasetsby attributes. Coco datasets are the most moldable form of datasets. For multiframe annotations, the folder "multiframe_annotations" has a folder which monitors and tracks the multiframe annotations. 
+
+#### silt_to_coco
+
+`silt_to_coco` takes a raw dataset and converts it into a a coco dataset. Can create datasets of stars, satellites, or neither. Converts each fits file into a preprocessed PNG used during training. The preprocess function can be specified to create the desired preprocess function. 
+
+```python
+silt_dataset_path (list[str]): Input list of files to shuffle and generate a train test split
+include_sats (bool): Include satellites in coco dataset
+include_stars (bool): Include stars in coco dataset
+zip (bool): Zip files into a compressed folder
+convert_png (bool): Convert to an intermediate PNG  
+process_func (src.preprocess_functions): Preprocess function to convert PNGs to
+notes (str)
+```
+
+
+#### merge_coco
+
+`merge_coco` Converts a list of processed coco directories and merges them together, and optionally can creates a train test split with a specified train test split ratio
+
+```python 
+coco_directories (list[str]): List of paths of coco datasets. Raw datasets must be converted to coco before merging
+destination_path (str): Destination of the merged dataset
+notes (str): Notes to add onto the dataset annotation file for future use
+train_test_split (bool): Bool to create a train test split or not
+train_ratio (float): Ratio of training samples
+val_ratio (float): Ratio of validation samples
+test_ratio (float): Ratio of testing samples
+zip (bool): Number of partitions to divide your data into
+```
+
+#### partition_dataset
+
+`partition_dataset` Can partition a dataset into multiple coco datasets sorted by a particular attribtue (SNR etc.). You can also use this to limit datasets to a desired size
+
+```python 
+coco_directories (list[str]): Coco dataset to partition or reduce
+destination_paths (list[str]): Directories to split this coco dataset into
+partition_attribute (str): String attribute of the image specific attribute to sort by
+dataset_size (int): Limit to the size of the dataset
+notes (str): Notes to add onto the dataset annotation file for future use
+```

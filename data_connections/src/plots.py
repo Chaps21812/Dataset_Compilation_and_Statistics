@@ -4,14 +4,15 @@ import numpy as np
 import pandas as pd
 import os
 import re
-from typing import Union
-import tqdm
 from astropy.visualization import ZScaleInterval
 import matplotlib.gridspec as gridspec
 from .preprocess_functions import _iqr_log
 from matplotlib.animation import FuncAnimation
-import json 
-from astropy.io import fits
+import ipywidgets as widgets
+from IPython.display import display
+import matplotlib.pyplot as plt
+from ipywidgets import VBox, Button, Text, Output
+from IPython.display import display
 # from .raw_datset import raw_dataset, satsim_path_loader
 
 #This code was AI generated. I would love to spend time meticulously making plots, but I think my time is better spent analyzing them rather than adjusting details on a plot. 
@@ -815,6 +816,103 @@ def plot_animated_collect(images_list: list, bboxes_list:list, attributes_list:d
 
     ani = FuncAnimation(fig, update, frames=len(images_list), interval=200, blit=True)
     return fig, ani
+
+def plot_star_selection(image: np.ndarray, bboxes:tuple, index:int, attributes:dict):
+    """
+    Plots an image with all annotations.
+
+    Args:
+        image (np.ndarray): The image to display.
+        annotations (list): List of annotation dictionaries.
+    """
+    fig = plt.figure(figsize=(6, 6))
+    fig, ax_top = plt.subplots()
+
+    # ax.imshow(_iqr_log(image), cmap='gray')
+    ax_top.imshow(_iqr_log(image), cmap='gray')
+
+    # List to store points
+    points = []
+
+    def onclick(event):
+        if event.xdata is not None and event.ydata is not None:
+            x, y = event.xdata, event.ydata
+            points.append((x, y))
+            ax_top.plot(x, y, 'ro')  # mark the clicked point
+            fig.canvas.draw()
+            print(f"Clicked at: ({x:.2f}, {y:.2f})")
+
+    # Plot
+    fig.suptitle("Plate Solver")
+
+    # Plot the first image
+    ax_top.imshow(_iqr_log(image), cmap='gray')
+    ax_top.set_title(f'Image {attributes["fits_file"]}')
+
+
+    if bboxes:
+        spotlite_box = bboxes[index]
+        rect = patches.Rectangle(
+            (spotlite_box[0], spotlite_box[1]),
+            spotlite_box[2],
+            spotlite_box[3],
+            linewidth=2,
+            edgecolor='red',
+            facecolor='none'
+        )
+
+        for bbox in bboxes:
+            # Draw all annotations
+            rect = patches.Rectangle(
+                (bbox[0], bbox[1]),
+                bbox[2],
+                bbox[3],
+                linewidth=2,
+                edgecolor='red',
+                facecolor='none'
+            )
+            ax_top.add_patch(rect)
+            ax_top.plot(bbox[0]+bbox[2]/2, bbox[1]+bbox[3]/2, '.', color="red", alpha=.5)
+
+
+    # Output widget for matplotlib figure
+    out = Output()
+
+    # Function to handle click events
+    def on_click(event):
+        if event.xdata is not None and event.ydata is not None:
+            x, y = event.xdata, event.ydata
+            points.append((x, y))
+            # run your custom code here
+            print(f"Dot added at: ({x:.1f}, {y:.1f})")
+            # update plot
+            ax_top.plot(x, y, 'ro')
+            fig.canvas.draw()
+
+    # Text box to indicate done
+    done_text = Text(
+        placeholder='Type "done" when finished',
+        description='Status:'
+    )
+
+    def on_done_change(change):
+        if change['new'].lower() == 'done':
+            print("Annotation complete!")
+            print("All points:", points)
+
+    done_text.observe(on_done_change, names='value')
+    cid = fig.canvas.mpl_connect('button_press_event', on_click)
+
+    # Combine widgets
+    ui = VBox([out, done_text])
+
+    with out:
+        display(fig)
+
+    display(ui)
+
+    return points
+
 
 
 # def plot_annotation_subset(pandas_library:pd.DataFrame, loader, view_satellite:bool=False, view_star:bool=False, view_image:bool=True):

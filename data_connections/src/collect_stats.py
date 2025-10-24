@@ -66,6 +66,17 @@ def _circular_stats(angles_deg:list) -> tuple[float, float, float]:
     return mean_angle_deg, circular_std, R
 
 def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple[dict,dict]:
+    """
+    Given a json annotation file and fits file, collects all information and compiles it into a coco annotation
+
+    Args:
+        json_content (dict): JSON annotation information
+        fits_content (fits): Raw Fits file
+        padding (int): Padding to consider for the bounding box
+
+    Returns:
+        None
+    """
     sample_attributes = {}
     object_attributes = []
     padding = padding
@@ -253,6 +264,17 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     return sample_attributes, object_attributes
 
 def collect_satsim_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple[dict,dict]:
+    """
+    Given a json annotation file and fits file, collects all information and compiles it into a coco annotation for satsim datasets
+
+    Args:
+        json_content (dict): JSON annotation information
+        fits_content (fits): Raw Fits file
+        padding (int): Padding to consider for the bounding box
+
+    Returns:
+        None
+    """
     sample_attributes = {}
     object_attributes = []
     padding = padding
