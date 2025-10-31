@@ -2,7 +2,7 @@ from astropy.io import fits
 from datetime import datetime
 import numpy as np
 from math import atan2
-from .constants import SPACECRAFT
+from .constants import SPACECRAFT, SITE_PARAMS
 
 def _directed_circular_stats(angles_deg:list) -> tuple[float, float, float]:
     """
@@ -84,17 +84,26 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     hdu = fits_content[0].header
     data = fits_content[0].data
 
+    sample_attributes = sample_attributes|dict(hdu)
+    sample_attributes.pop("COMMENT")
+
     x_res = hdu["NAXIS1"]
     y_res = hdu["NAXIS2"]
     
-
-
     sample_attributes["filename"] = json_content["file"]["filename"]
-    try:
-        norad_id = json_content["file"]["filename"].split(".")[0].split("sat_")[1]
+    sample_attributes = sample_attributes|SITE_PARAMS[json_content["file"]["id_sensor"]]
+
+    if "OBJECT" in sample_attributes.keys() and sample_attributes["OBJECT"] in SPACECRAFT.keys():
+        norad_id = sample_attributes["OBJECT"]
         sample_attributes["spacecraft"] = SPACECRAFT[norad_id]
-    except:
+        sample_attributes["spacecraft_name"] = SPACECRAFT[norad_id]["name"]
+        sample_attributes["spacecraft_sp3"] = SPACECRAFT[norad_id]["sp3"]
+        sample_attributes["spacecraft_norad"] = SPACECRAFT[norad_id]["norad"]
+    else:
         sample_attributes["spacecraft"] = None
+        sample_attributes["spacecraft_name"] = None
+        sample_attributes["spacecraft_sp3"] = None
+        sample_attributes["spacecraft_norad"] = None
     try: sample_attributes["id_sensor"] = json_content["file"]["id_sensor"]
     except KeyError: sample_attributes["id_sensor"] = "N/A"
     try: sample_attributes["QA"] = json_content["approved"]
@@ -228,11 +237,14 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         local_std = np.std(window)
         
         local_bkg_mean = np.mean(local_bkgs)
+        if len(local_bkgs) < 1:
+            local_bkg_mean = local_minimum
+
         local_bkg_std = np.std(local_bkgs)
 
-        detection_dict["local_prominence"] = (signal-local_minimum)/(local_std+1*10**-5)
-        detection_dict["local_snr"] = (signal-local_bkg_mean)/(local_bkg_std+1*10**-5)
-        detection_dict["max_signal_diff"] = 1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5)
+        detection_dict["local_prominence"] = float((signal-local_minimum)/(local_std+1*10**-5))
+        detection_dict["local_snr"] = float(0 if np.isnan((signal-local_bkg_mean)/(local_bkg_std+1*10**-5)) else (signal-local_bkg_mean)/(local_bkg_std+1*10**-5))
+        detection_dict["max_signal_diff"] = float(1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5))
         # detection_dict["global_snr"] = (signal-local_bkg_mean)/sample_attributes["std_intensity"]
         
         object_attributes.append(detection_dict)
@@ -252,14 +264,15 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     sample_attributes["num_stars"] = stars
     sample_attributes["num_sats"] = sats        
 
-    try:
-        sample_attributes["rain_condition"] = hdu["SK.WEATHER.RAINCONDITION"]
-        sample_attributes["rain"] = hdu["SK.WEATHER.RAIN"]
-        sample_attributes["humidity"] = hdu["SK.WEATHER.HUMIDITY"]
-        sample_attributes["windspeed"] = hdu["SK.WEATHER.WINDSPEED"]
-    except Exception as e:
-        pass
-
+    desired_attributes = ["rain_condition", "rain", "humidity", "windspeed"]
+    for key in desired_attributes:
+        if key not in sample_attributes.keys():
+            sample_attributes[key] = None
+        else:
+            sample_attributes["rain_condition"] = hdu["SK.WEATHER.RAINCONDITION"]
+            sample_attributes["rain"] = hdu["SK.WEATHER.RAIN"]
+            sample_attributes["humidity"] = hdu["SK.WEATHER.HUMIDITY"]
+            sample_attributes["windspeed"] = hdu["SK.WEATHER.WINDSPEED"]
 
     return sample_attributes, object_attributes
 

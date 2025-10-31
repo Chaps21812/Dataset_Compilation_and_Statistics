@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # LMNT01_dates = ["2025-02-20","2025-02-21","2025-02-24","2025-02-25","2025-02-26","2025-02-27","2025-02-28","2025-03-03","2025-03-04","2025-03-05"]
     LMNT01_dates = ["2025-02-21","2025-02-24","2025-02-25"]
     downloader = S3Client(LMNT01_PATH)
-    for date in reversed(LMNT01_dates):
+    for date in (LMNT01_dates):
         print(date)
         downloader.download_annotation_dates(date, "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/LMNT01-2025_Annotations")
 

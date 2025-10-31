@@ -11,6 +11,8 @@ import shutil
 from datetime import datetime
 import ipywidgets as widgets
 from IPython.display import display
+import requests
+from collections import Counter
 
 from .astrometric_localization import detect_stars, match_to_catalogue, skycoord_to_pixels
 from .collect_stats import collect_stats, collect_satsim_stats, _find_new_centroid, _find_centroid_COM
@@ -19,6 +21,7 @@ from .plots import plot_single_annotation, plot_error_evaluator, plot_animated_c
 from .target_injection import extract_segmented_patches_from_json_and_fits, inject_target_into_fits
 from .constants import SPACECRAFT, ERROR_TYPES
 from .preprocess_functions import iqr_log
+from .UDL_KEY import UDL_KEY, USERNAME, PASSWORD
 
 class PickleSerializable:
     def save(self, filename):
@@ -40,6 +43,7 @@ class StatisticsFile(PickleSerializable):
         self.selected_annotation_files = []
         self.current_index=0
         self.collect_dict = {}
+        self.sequence_lengths = {}
         
     def add_sample_attributes(self, item_sample:dict):
         sample = pd.DataFrame([item_sample])
@@ -106,7 +110,11 @@ class raw_dataset():
             self.statistics_filename = os.path.join(self.directory,f"dataset_statistics.pkl")
             self.recalculate_statistics()
             self.update_annotation_to_fits()
-        self.collect_dict = self.statistics_file.collect_dict
+        try:
+            self.collect_dict = self.statistics_file.collect_dict
+            self.sequence_lengths = self.statistics_file.sequence_lengths
+        except AttributeError:
+            self.recalculate_statistics()
 
     def clear_cache(self):
         """
@@ -283,8 +291,10 @@ class raw_dataset():
                     if json_content["image_set_id"] not in self.statistics_file.collect_dict.keys():
                         self.statistics_file.collect_dict[json_content["image_set_id"]] = []
                         self.statistics_file.collect_dict[json_content["image_set_id"]].append({"json_path":annotT,"fits_path":fitsT})
+                        self.statistics_file.sequence_lengths[json_content["image_set_id"]] = json_content["request_size"]
                     else:
                         self.statistics_file.collect_dict[json_content["image_set_id"]].append({"json_path":annotT,"fits_path":fitsT})
+                        self.statistics_file.sequence_lengths[json_content["image_set_id"]] = json_content["request_size"]
                 else:
                     if "No_Collect" not in self.statistics_file.collect_dict.keys():
                         self.statistics_file.collect_dict["No_Collect"] = []
@@ -299,6 +309,17 @@ class raw_dataset():
 
                 sample_attributes, object_attributes = collect_stats(json_content, fits_content)
 
+                for recalc_obj in object_attributes:
+                    for orig_index, orig_obj in enumerate(json_content["objects"]):
+                        if orig_obj["correlation_id"] == recalc_obj["correlation_id"]:
+                            json_content["objects"][orig_index] = json_content["objects"][orig_index]|recalc_obj
+                            continue
+
+
+                json_content["image_attributes"] = sample_attributes
+                with open(annotT, 'w') as f:
+                    json.dump(json_content,f, indent=4)
+
                 sample_attributes["json_path"] = annotT
                 sample_attributes["fits_path"] = fitsT
                 for dictionary in object_attributes:
@@ -307,9 +328,9 @@ class raw_dataset():
 
                 self.statistics_file.add_sample_attributes(sample_attributes)
                 self.statistics_file.add_annotation_attributes(object_attributes)
-            except Exception as e:
-                print(f"Error processing {annotT}: {e}")
-
+            # except Exception as e:
+            #     print(f"Error processing {annotT}: {e}")
+            except ValueError: pass
         self._save_db()
 
     def __len__(self):
@@ -786,7 +807,7 @@ class raw_dataset():
             subset_database.save(os.path.join(self.directory, "collect_subset.pkl"))
         self.recalculate_statistics()
 
-    def create_calsat_dataset(self, new_dataset_directory, move_mode:str="copy"):
+    def create_calsat_dataset(self, new_dataset_directory, move_mode:str="copy", percentage_limit=.10):
         """
         Creates a dataset with Calsats registered in the constants SPACECRAFT dictionary. 
 
@@ -801,26 +822,37 @@ class raw_dataset():
         os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
 
+        fits_origins = {}
+        json_origins = {}
+
         if os.path.exists(os.path.join(self.directory, "calsats.pkl")):
             subset_database = StatisticsFile.load(os.path.join(self.directory, "calsats.pkl"))
         else: 
             subset_database = StatisticsFile()
 
         calsats = 0
+        total_images= len(os.listdir(os.path.join(self.directory, "raw_fits")))
 
-        for image_index, (annotation, fits_pat) in tqdm(enumerate(self.annotation_to_fits.items())):
-            json_path = annotation
-            fits_path = fits_pat
-            # Open and load the JSON file
-            with open(json_path, 'r') as f:
-                data = json.load(f)
+        for collect_id, collect_path_list in tqdm(self.collect_dict.items(), desc="Scanning collects..."):
+            for path_dict in collect_path_list:
+                json_path = path_dict["json_path"]
+                fits_path = path_dict["fits_path"]
+                # Open and load the JSON file
+                # with open(json_path, 'r') as f:
+                #     data = json.load(f)
+                fit  = fits.open(fits_path)
+                hdul = fit[0]
+                header = hdul.header
+                if "OBJECT" not in header.keys():
+                    continue
+                else: norad_id = header["OBJECT"]
 
-            try:
-                norad_id = data["file"]["filename"].split(".")[0].split("sat_")[1]
-                calsat = SPACECRAFT[norad_id]
-                if calsat is not None:
+                # try:
+                if norad_id in SPACECRAFT.keys():
                     subset_database.selected_annotation_files.append(json_path)
                     subset_database.selected_fits_files.append(fits_path)
+                    json_origins[os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path))] = json_path
+                    fits_origins[os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path))] = fits_path
                     if move_mode == "move":
                         shutil.move(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
                         shutil.move(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
@@ -831,14 +863,20 @@ class raw_dataset():
                         shutil.copy(json_path, os.path.join(new_dataset_directory, "raw_annotation", os.path.basename(json_path)))
                         shutil.copy(fits_path, os.path.join(new_dataset_directory, "raw_fits", os.path.basename(fits_path)))
                     calsats += 1
-            except KeyError:
-                continue
-            except IndexError:
-                continue
-            subset_database.current_index +=1
-            subset_database.save(os.path.join(self.directory, "calsats.pkl"))
+                # except KeyError:
+                #     continue
+                # except IndexError:
+                #     continue
+                subset_database.current_index +=1
+                subset_database.save(os.path.join(self.directory, "calsats.pkl"))
+            if calsats > percentage_limit*total_images: break
         print(f"Num calsats: {calsats}")
-        self.recalculate_statistics()
+        with open(os.path.join(new_dataset_directory, "original_paths.txt"), 'w') as f:
+            original_paths = {"original_jsons":json_origins, "original_fits":fits_origins}
+            json.dump(original_paths, f, indent=4)
+
+        if calsats > 0 and move_mode == "move":
+            self.recalculate_statistics()
 
     def create_target_quality_dataset(self, new_dataset_directory:str, move_mode:str="copy"):
         """
@@ -1068,6 +1106,109 @@ class raw_dataset():
             wcs_database.save(os.path.join(self.directory, "errors.pkl"))
         self.update_annotation_to_fits()
         self.recalculate_statistics()
+
+    def complete_calsat_dataset(self):
+        """
+        Downloads annotations and images from SILT or UDL. Given a annotation date, you can download all annotations for that day. 
+
+        Args:
+            date (str): Annotation date, you can find it when the s3 bucket is initialized
+            download_directory (str): Local path to store downloaded data
+            sort_by_date (bool): Saves files in date sorted folders according to collect date
+
+        Returns:
+            None
+        """
+
+        delete_collects = []
+        os.makedirs(os.path.join(self.directory, "no_sidereal_images"), exist_ok=True)
+        os.makedirs(os.path.join(self.directory, "UDL_info"), exist_ok=True)
+        os.makedirs(os.path.join(self.directory, "no_sidereal_images", "raw_annotation"), exist_ok=True)
+        os.makedirs(os.path.join(self.directory, "no_sidereal_images", "raw_fits"), exist_ok=True)
+
+        all_fits_files = os.listdir(os.path.join(self.directory, "raw_fits"))
+
+        for collect_id,sequence_length in tqdm(self.sequence_lengths.items(), desc="Downloading Sidereal frame"):
+            query_URL = f"https://unifieddatalibrary.com/udl/skyimagery?expStartTime=>2020-01-01T00%3A00%3A00.000000Z&imageSetId={collect_id}"
+            query_headers = {
+                "Authorization": f"Basic {UDL_KEY}",
+                "accept": "application/json"
+            }
+
+            max_sequence_id=0
+            max_id = ""
+            with requests.get(query_URL, headers=query_headers, stream=True) as response:
+                response.raise_for_status()  # Raises an exception for HTTP errors
+                jsoone = response.json()
+                for item in jsoone:
+                    if item["sequenceId"] > max_sequence_id:
+                        max_sequence_id = max(max_sequence_id, item["sequenceId"])
+                        max_id = item["id"]
+            with open(os.path.join(self.directory,  "UDL_info", f"{collect_id}.UDL"),'w') as F:
+                json.dump(jsoone, F, indent=4)
+
+            count = sum(item["imageSetId"] in filename for filename in all_fits_files)
+            if count < item["imageSetLength"]-1:
+                for pathset in self.collect_dict[collect_id]:
+                    jname = os.path.basename(pathset["json_path"])
+                    fname = os.path.basename(pathset["fits_path"])
+                    try:
+                        shutil.move(pathset["json_path"], (os.path.join(self.directory, "no_sidereal_images", "raw_annotation", jname)))
+                        shutil.move(pathset["fits_path"], (os.path.join(self.directory, "no_sidereal_images", "raw_fits", fname )))
+                    except FileNotFoundError:
+                        pass
+                continue
+
+
+
+            donwload_URL = f"https://unifieddatalibrary.com/udl/skyimagery/getFile/{max_id}"
+            download_headers = {
+                "Authorization": f"Basic {UDL_KEY}",
+                "accept": "application/octet-stream"
+            }
+            if max_id == "":
+                continue
+            with requests.get(donwload_URL, headers=download_headers, stream=True) as response:
+                response.raise_for_status()  # Raises an exception for HTTP errors
+                file_location=os.path.join(self.directory, "temp_fits.fits")
+                with open(file_location, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:  # filter out keep-alive chunks
+                            f.write(chunk)
+            fits_content = fits.open(file_location)
+            hdu = fits_content[0]
+            hdul = hdu.header
+            if hdul["TRKMODE"] != "sidereal":
+                for pathset in self.collect_dict[collect_id]:
+                    jname = os.path.basename(pathset["json_path"])
+                    fname = os.path.basename(pathset["fits_path"])
+                    try:
+                        shutil.move(pathset["json_path"], (os.path.join(self.directory, "no_sidereal_images", "raw_annotation", jname)))
+                        shutil.move(pathset["fits_path"], (os.path.join(self.directory, "no_sidereal_images", "raw_fits", fname )))
+                    except FileNotFoundError:
+                        pass
+            else:
+                shutil.move(os.path.join(self.directory, "temp_fits.fits"), os.path.join(self.directory, "raw_fits",f"{collect_id}.sidereal.fits"))
+        self.recalculate_statistics()
+
+    def rename_files(self):
+        for annot_path,fits_path in self.annotation_to_fits.items():
+            json_path_original = os.path.join(self.directory, "raw_annotation")
+            fits_path_original = os.path.join(self.directory, "raw_fits")
+            new_name=""
+            with open(os.path.join(json_path_original,annot_path), 'r') as f:
+                json_data = json.load(f)
+                if "image_set_id" not in json_data.keys():
+                    continue
+                new_fits_name = f"{json_data["image_set_id"]}.{json_data["sequence_id"]}.fits"
+                new_json_name = f"{json_data["image_set_id"]}.{json_data["sequence_id"]}.json"
+                
+            shutil.move(os.path.join(annot_path), os.path.join(json_path_original,new_json_name))
+            shutil.move(os.path.join(fits_path), os.path.join(fits_path_original,new_fits_name))
+        self.recalculate_statistics()
+
+
+        
 
 def _error_input_prompt():
     current_input = input("Enter error number: ")

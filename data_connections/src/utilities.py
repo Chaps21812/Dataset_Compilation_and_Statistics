@@ -11,6 +11,12 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import numpy as np
 
+def search_image_id(directory, fits_uuid):
+    for file in os.listdir(os.path.join(directory,"raw_annotation")):
+        with open(os.path.join(os.path.join(directory,"raw_annotation",file)),'r') as f:
+            data = json.load(f)
+            if fits_uuid in data["file"]["filename"]:
+                print(os.path.join(os.path.join(directory,"raw_annotation",file)))
 
 def save_torch_script_model(model_path:str, output_path:str, name:str):
     model =  torchvision.models.detection.retinanet_resnet50_fpn()
@@ -219,7 +225,7 @@ def count_images_in_datasets(storage_path):
     total=0
     folder_list = get_folders_in_directory(storage_path)
     if "raw_annotation" in [os.path.basename(fold) for fold in folder_list]:
-        directory = os.path.join(folder_list[0])
+        directory = os.path.join(storage_path,"raw_fits")
         total_images = os.listdir(directory)
         total+=len(total_images)
         print(f"{directory}: {len(total_images)}")

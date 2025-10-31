@@ -7,13 +7,15 @@ import datetime as dt
 import numpy as np
 import copy
 import random
-from .raw_datset import raw_dataset
+from .raw_datset import raw_dataset, PickleSerializable
 from tqdm import tqdm
 from astropy.io import fits
+import imageio.v3 as iio
 from PIL import Image
 from .collect_stats import collect_stats, collect_satsim_stats
 from .image_chipping import generate_training_crops
 from .constants import SPACECRAFT
+from .preprocess_functions import raw_file
 
 def merge_categories(category_list:list):
     name_to_category = {}
@@ -333,7 +335,7 @@ def merge_coco(coco_directories:list[str], destination_path:str, notes:str="", t
             for image in tqdm(path_to_image, desc="Copying images", total=len(path_to_image)):
                 shutil.copy(image, new_images_folder)
 
-def silt_to_coco(raw_dataset_path:str, include_sats:bool=True, include_stars:bool=False, zip:bool=False, convert_png:bool=True, process_func=None, notes:str=""):
+def silt_to_coco(raw_dataset_path:str, include_sats:bool=True, include_stars:bool=False, convert_png:bool=True, process_func:list=None, notes:str=""):
     """
     Converts a SILT bucket annotation dataset into a coco dataset
 
@@ -349,6 +351,7 @@ def silt_to_coco(raw_dataset_path:str, include_sats:bool=True, include_stars:boo
     Returns:
         train, test, split (tuple): List of files present in the train test split
     """
+    assert isinstance(process_func, list)
     path_to_annotation = {}
     local_files =  raw_dataset(raw_dataset_path)
 
@@ -562,11 +565,7 @@ def silt_to_coco(raw_dataset_path:str, include_sats:bool=True, include_stars:boo
         multiframe_annotations=json.dumps(final_collections_dictionary, indent=4)
         outfile.write(multiframe_annotations)
 
-    #Saving Images with or without compression
-    # Compresses to zip, copies file and renames, PNG, and preprocessed
-    if zip:
-        compress_data(path_to_annotation.keys(), os.path.join(images_folder,"compressed_fits.zip"))
-    else:
+    for func in process_func:
         for image in tqdm(path_to_annotation.keys(), desc="Copying images", total=len(path_to_annotation.keys())):
             new_file_name = os.path.join(images_folder,str(path_to_annotation[image]["new_id"])+f".{filetype}")
             if convert_png:
@@ -576,11 +575,10 @@ def silt_to_coco(raw_dataset_path:str, include_sats:bool=True, include_stars:boo
                 if data is None or data.size==0:
                     print(f"{new_file_name} failed to save")
                     continue
-                if process_func is not None:
-                    data = process_func(data)
+                if func is not None:
+                    data = func(data)
                 else: 
-                    data = np.stack([data,data,data], axis=0)
-                    data = (data / 256).astype(np.uint8)
+                    data = raw_file(data)
                 data = np.transpose(data, (1,2,0))
                 png = Image.fromarray(data)
                 png.save(new_file_name)
@@ -1158,7 +1156,7 @@ def partition_dataset(coco_directories:str, destination_paths:list[str], partiti
         for image in tqdm(temp_list, desc="Copying images", total=len(temp_list)):
             shutil.copy(image, images_alias)
     
-def build_coco_satnet(satnet_directory:str, destination_path:str, convert_png:bool=True, process_func=None, notes:str=""):
+def build_coco_satnet(satnet_directory:str, destination_path:str, preprocess_functions:list=[raw_file], notes:str=""):
     raw_annotation_directory = os.path.join(satnet_directory, "raw_data")
     path_to_annotation = {}
 
@@ -1180,9 +1178,7 @@ def build_coco_satnet(satnet_directory:str, destination_path:str, convert_png:bo
     os.makedirs(annotations_folder, exist_ok=True)
     os.makedirs(multiframe_annotations_folder, exist_ok=True)
 
-    filetype="fits"
-    if convert_png:
-        filetype="png"
+    filetype="png"
 
     collect_dictionary:dict[str,list] = {}
 
@@ -1351,36 +1347,648 @@ def build_coco_satnet(satnet_directory:str, destination_path:str, convert_png:bo
         multiframe_annotations=json.dumps(final_collections_dictionary, indent=4)
         outfile.write(multiframe_annotations)
 
-    #Saving Images with or without compression
-    # Compresses to zip, copies file and renames, PNG, and preprocessed
+    for func in preprocess_functions:
+        os.makedirs(os.path.join(destination_path, f"images_{func.__name__}"), exist_ok=True)
 
     for image in tqdm(path_to_annotation.keys(), desc="Copying images", total=len(path_to_annotation.keys())):
-        new_file_name = os.path.join(images_folder,str(path_to_annotation[image]["new_id"])+f".{filetype}")
-        if convert_png:
+        for func in preprocess_functions:
+            preprocess_path = os.path.join(destination_path, f"images_{func.__name__}")
+            new_file_name = os.path.join(preprocess_path,str(path_to_annotation[image]["new_id"])+f".{filetype}")
             hdu = fits.open(image)
             hdul = hdu[0]
             data = hdul.data
             if data is None or data.size==0:
                 print(f"{new_file_name} failed to save")
                 continue
-            if process_func is not None:
-                data = process_func(data)
+            if func is not None:
+                data = func(data)
             else: 
-                data = np.stack([data,data,data], axis=0)
-                data = (data / 256).astype(np.uint8)
-            data = np.transpose(data, (1,2,0))
-            png = Image.fromarray(data)
-            png.save(new_file_name)
+                data = raw_file(data)
+            # data = np.transpose(data, (1,2,0))
+            # png = Image.fromarray(data)
+            # png.save(new_file_name)
+            iio.imwrite(new_file_name, data)
+            # if process_func is not None:
+            #     data = process_func(data)
+            # else: 
+            #     data = np.stack([data,data,data], axis=0)
+            #     data = (data / 256).astype(np.uint8)
+            # data = np.transpose(data, (1,2,0))
+            # png = Image.fromarray(data)
+            # png.save(new_file_name)
+
+
+# New age coco handling
+def train_test_split(directory:str, notes:str="", train_ratio=0.8, val_ratio=0.10, test_ratio=0.10):
+    """
+    Generates a coco dataset from a list of coco datasets and compiles them into one destination. Generates a train test split based on collect.
+
+    Args:
+        coco_directories (list[str]): List of paths of coco datasets. Raw datasets must be converted to coco before merging
+        destination_path (str): Destination of the merged dataset
+        notes (str): Notes to add onto the dataset annotation file for future use
+        train_test_split (bool): Bool to create a train test split or not
+        train_ratio (float): Ratio of training samples
+        val_ratio (float): Ratio of validation samples
+        test_ratio (float): Ratio of testing samples
+        zip (bool): Number of partitions to divide your data into
+
+    Returns:
+        None
+    """
+    path_to_image = []
+    images_queue = []
+    annotations_queue = []
+    notes_queue = []
+    catagories_queue = []
+    collections_queue = {}
+    id_to_index = {}
+    multiframe_annotations_dictionary = {}
+    
+    anotations_file = os.path.join(directory, "annotations", "annotations.json")
+    with open(anotations_file, 'r') as f:
+        annotations = json.load(f)
+    multiframe_annotation_file = os.path.join(directory, "multiframe_annotations", "multiframe_annotations.json")
+    with open(multiframe_annotation_file, 'r') as f:
+        multiframe_annotations = json.load(f)
+    images_queue.extend(annotations["images"])
+    annotations_queue.extend(annotations["annotations"])
+    notes_queue.append({"info":annotations["info"], "notes":annotations["notes"], "directory": directory })
+    multiframe_annotations_dictionary = multiframe_annotations_dictionary | multiframe_annotations
+
+    for index, item in enumerate(annotations["images"]):
+        if item['collect_id'] not in collections_queue:
+            collections_queue[item['collect_id']] = []
+            collections_queue[item['collect_id']].append(os.path.join(directory,item['file_name']))
         else:
-            destination_path = shutil.copy(image, images_folder)
-            shutil.move(destination_path,new_file_name)
+            collections_queue[item['collect_id']].append(os.path.join(directory,item['file_name']))
+
+    catagories_queue.extend(annotations["categories"]) #try and find a smarter way of dealing with categories pls
+    templist = [os.path.join(directory, "images", image) for image in os.listdir(os.path.join(directory, "images"))]
+    path_to_image.extend(templist)
+
+    annotations_id_to_index = [[] for i in range(len(images_queue))]
+    for index, item in enumerate(images_queue):
+        id_to_index[item["id"]] = index
+    for index,anot in enumerate(annotations_queue):
+        annotations_id_to_index[id_to_index[anot["image_id"]]].append(index)
+    merged_catagories = merge_categories(catagories_queue)
+
+    filetype="png"
+    
+    now = dt.datetime.now()
+    info = {
+        "year": now.year,
+        "version": "1.0",
+        "description": "Satellite detection of calsat dataset. ",
+        "contributor":"EO Solutions",
+        "date_created": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "annotation": "Satellite BBox",
+        "samples":len(path_to_image),
+        "prev_notes":notes_queue}
+    
+    titles = ["train","val","test"]
+    file_list_split = split_collections(collections_queue, train_ratio=train_ratio, val_ratio=val_ratio, test_ratio=test_ratio)
+    for j, collection_dictionary in enumerate(file_list_split):
+        temp_list = [x for lst in collection_dictionary.values() for x in lst]
+        indicies = [id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))] for single_path in temp_list]
+        temp_anot_index = [annotations_id_to_index[id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))]] for single_path in temp_list]
+        new_multiframe_annotations = {cid:multiframe_annotations_dictionary[cid] for cid in collection_dictionary.keys()}
+
+        ### For one large dataset
+        # Save annotation data to corresponding train test json
+        #Make new data directory
+        data_folder = directory
+        subset_folder = os.path.join(data_folder, titles[j])
+        images_alias = os.path.join(data_folder, titles[j], "images")
+        annotations_alias = os.path.join(data_folder, titles[j], "annotations")
+        multiframe_annotations_alias = os.path.join(data_folder, titles[j], "multiframe_annotations")
+        os.makedirs(data_folder, exist_ok=True)
+        os.makedirs(subset_folder, exist_ok=True)
+        os.makedirs(images_alias, exist_ok=True)
+        os.makedirs(annotations_alias, exist_ok=True)
+        os.makedirs(multiframe_annotations_alias, exist_ok=True)
+
+        info["train"]= train_ratio
+        info["test"]= test_ratio
+        info["val"]= val_ratio
+        info["samples"]=len(temp_list)
+
+        t_anot =  [[annotations_queue[j] for j in li ] for li in temp_anot_index]
+        all_anot = []
+        for t in t_anot:
+            all_anot.extend(t)
+
+        all_data = {
+            "info": info,
+            "images": [images_queue[i] for i in indicies],
+            "annotations":all_anot,
+            "categories": merged_catagories,
+            "notes": notes}
+        data_attributes_obj=json.dumps(all_data, indent=4)
+        with open(os.path.join(annotations_alias, "annotations.json"), "w") as outfile:
+            outfile.write(data_attributes_obj)
+        with open(os.path.join(multiframe_annotations_alias,"multiframe_annotations.json"), 'w') as f:
+            json.dump(new_multiframe_annotations, f)
+
+        folders = [
+            name for name in os.listdir(directory)
+            if name.startswith("images_") and os.path.isdir(os.path.join(directory, name))
+        ]
+        for f in folders:
+            os.makedirs(os.path.join(data_folder, titles[j],f), exist_ok=True)
+
+        for image in tqdm(temp_list, desc="Copying images", total=len(temp_list)):
+            base_image_name = os.path.basename(image)
+            for f in folders:
+                original_image = os.path.join(directory,f,base_image_name)
+                new_location = os.path.join(data_folder, titles[j],f)
+                shutil.copy(original_image, new_location)
+            shutil.copy(image, images_alias)
+
+class COCODataset(PickleSerializable):
+    def __init__(self,data_directory):
+        self.directory = data_directory
+        self.active_preprocessing = None
+        if "COCO_dataset.pkl" in os.listdir(self.directory):
+            self.statistics_file = self.load(os.path.join(self.directory, "COCO_dataset.pkl"))
+        else:
+            self.save(os.path.join(self.directory, "COCO_dataset.pkl"))
+
+    def _save_coco_pkl(self):
+        self.save(os.path.join(self.directory, "COCO_dataset.pkl"))
+
+    def _set_active_preprocess(self, function):
+        self.active_preprocessing = function.__name__
+        with open(os.path.join(self.directory, "active_preprocessing.txt"),'w') as f:
+            f.write(f"Active preprocessing: {function.__name__}")
+    
+    def _remove_active_preprocess(self):
+        self.active_preprocessing = None
+        os.remove(os.path.join(self.directory, "active_preprocessing.txt"))
+
+    def generate_TTV_split(self, notes:str="", train_ratio=0.8, val_ratio=0.10, test_ratio=0.10):
+        """
+        Generates a coco dataset from a list of coco datasets and compiles them into one destination. Generates a train test split based on collect.
+
+        Args:
+            coco_directories (list[str]): List of paths of coco datasets. Raw datasets must be converted to coco before merging
+            destination_path (str): Destination of the merged dataset
+            notes (str): Notes to add onto the dataset annotation file for future use
+            train_test_split (bool): Bool to create a train test split or not
+            train_ratio (float): Ratio of training samples
+            val_ratio (float): Ratio of validation samples
+            test_ratio (float): Ratio of testing samples
+            zip (bool): Number of partitions to divide your data into
+
+        Returns:
+            None
+        """
+        path_to_image = []
+        images_queue = []
+        annotations_queue = []
+        notes_queue = []
+        catagories_queue = []
+        collections_queue = {}
+        id_to_index = {}
+        multiframe_annotations_dictionary = {}
+        
+        anotations_file = os.path.join(self.directory, "annotations", "annotations.json")
+        with open(anotations_file, 'r') as f:
+            annotations = json.load(f)
+        multiframe_annotation_file = os.path.join(self.directory, "multiframe_annotations", "multiframe_annotations.json")
+        with open(multiframe_annotation_file, 'r') as f:
+            multiframe_annotations = json.load(f)
+        images_queue.extend(annotations["images"])
+        annotations_queue.extend(annotations["annotations"])
+        notes_queue.append({"info":annotations["info"], "notes":annotations["notes"], "directory": self.directory })
+        multiframe_annotations_dictionary = multiframe_annotations_dictionary | multiframe_annotations
+
+        for index, item in enumerate(annotations["images"]):
+            if item['collect_id'] not in collections_queue:
+                collections_queue[item['collect_id']] = []
+                collections_queue[item['collect_id']].append(os.path.join(self.directory,item['file_name']))
+            else:
+                collections_queue[item['collect_id']].append(os.path.join(self.directory,item['file_name']))
+
+        catagories_queue.extend(annotations["categories"]) #try and find a smarter way of dealing with categories pls
+
+        annotations_id_to_index = [[] for i in range(len(images_queue))]
+        for index, item in enumerate(images_queue):
+            id_to_index[item["id"]] = index
+        for index,anot in enumerate(annotations_queue):
+            annotations_id_to_index[id_to_index[anot["image_id"]]].append(index)
+        merged_catagories = merge_categories(catagories_queue)
+
+        filetype="png"
+        
+        now = dt.datetime.now()
+        info = {
+            "year": now.year,
+            "version": "1.0",
+            "description": "Satellite detection of calsat dataset. ",
+            "contributor":"EO Solutions",
+            "date_created": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "annotation": "Satellite BBox",
+            "samples":len(annotations["images"]),
+            "prev_notes":notes_queue}
+        
+        titles = ["train","val","test"]
+        file_list_split = split_collections(collections_queue, train_ratio=train_ratio, val_ratio=val_ratio, test_ratio=test_ratio)
+        for j, collection_dictionary in enumerate(file_list_split):
+            temp_list = [x for lst in collection_dictionary.values() for x in lst]
+            indicies = [id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))] for single_path in temp_list]
+            temp_anot_index = [annotations_id_to_index[id_to_index[int(os.path.basename(single_path).replace(f".{filetype}",""))]] for single_path in temp_list]
+            new_multiframe_annotations = {cid:multiframe_annotations_dictionary[cid] for cid in collection_dictionary.keys()}
+
+            ### For one large dataset
+            # Save annotation data to corresponding train test json
+            #Make new data directory
+            data_folder = self.directory
+            subset_folder = os.path.join(data_folder, titles[j])
+            images_alias = os.path.join(data_folder, titles[j], "images")
+            annotations_alias = os.path.join(data_folder, titles[j], "annotations")
+            multiframe_annotations_alias = os.path.join(data_folder, titles[j], "multiframe_annotations")
+            os.makedirs(data_folder, exist_ok=True)
+            os.makedirs(subset_folder, exist_ok=True)
+            os.makedirs(images_alias, exist_ok=True)
+            os.makedirs(annotations_alias, exist_ok=True)
+            os.makedirs(multiframe_annotations_alias, exist_ok=True)
+
+            info["train"]= train_ratio
+            info["test"]= test_ratio
+            info["val"]= val_ratio
+            info["samples"]=len(temp_list)
+
+            t_anot =  [[annotations_queue[j] for j in li ] for li in temp_anot_index]
+            all_anot = []
+            for t in t_anot:
+                all_anot.extend(t)
+
+            all_data = {
+                "info": info,
+                "images": [images_queue[i] for i in indicies],
+                "annotations":all_anot,
+                "categories": merged_catagories,
+                "notes": notes}
+            data_attributes_obj=json.dumps(all_data, indent=4)
+            with open(os.path.join(annotations_alias, "annotations.json"), "w") as outfile:
+                outfile.write(data_attributes_obj)
+            with open(os.path.join(multiframe_annotations_alias,"multiframe_annotations.json"), 'w') as f:
+                json.dump(new_multiframe_annotations, f)
+        self._save_coco_pkl()
+
+    def move_fits_to_train_test_split(self, preprocess_func=raw_file):
+        """
+        Generates a coco dataset from a list of coco datasets and compiles them into one destination. Generates a train test split based on collect.
+
+        Args:
+            coco_directories (list[str]): List of paths of coco datasets. Raw datasets must be converted to coco before merging
+            destination_path (str): Destination of the merged dataset
+            notes (str): Notes to add onto the dataset annotation file for future use
+            train_test_split (bool): Bool to create a train test split or not
+            train_ratio (float): Ratio of training samples
+            val_ratio (float): Ratio of validation samples
+            test_ratio (float): Ratio of testing samples
+            zip (bool): Number of partitions to divide your data into
+
+        Returns:
+            None
+        """
+        titles = ["train","val","test"]
+        for j, split_name in enumerate(titles):
+            ### For one large dataset
+            # Save annotation data to corresponding train test json
+            #Make new data directory
+            data_folder = self.directory
+            subset_folder = os.path.join(data_folder, titles[j])
+            images_alias = os.path.join(data_folder, titles[j], "images")
+            annotations_alias = os.path.join(data_folder, titles[j], "annotations")
+            annotations_json = os.path.join(data_folder, titles[j], "annotations", "annotations.json")
+            with open(annotations_json, 'r') as f:
+                data = json.load(f)
+                for image in tqdm(data["images"], desc="Copying images", total=len(data["images"])):
+                    base_image_name = os.path.basename(f"{image["id"]}.png")
+                    original_image = image["raw_fits_path"]
+                    new_location = os.path.join(images_alias, base_image_name)
+
+                    hdu = fits.open(original_image)
+                    hdul = hdu[0]
+                    data = hdul.data
+                    if data is None or data.size==0:
+                        print(f"{original_image} failed to save")
+                        continue
+                    if "16bit" in preprocess_func.__name__:
+                        data = preprocess_func(data)
+                        iio.imwrite(new_location, data)
+                    else: 
+                        data = preprocess_func(data)
+                        data = np.transpose(data, (1,2,0))
+                        png = Image.fromarray(data)
+                        png.save(new_location)
+        self._set_active_preprocess(preprocess_func)
+        self._save_coco_pkl()
+
+    def build_annotations(self, include_sats:bool=True, include_stars:bool=False, notes:str=""):
+        """
+        Converts a SILT bucket annotation dataset into a coco dataset
+
+        Args:
+            raw_dataset_path (list[str]): Input list of files to shuffle and generate a train test split
+            include_sats (bool): Ratio of training samples
+            include_stars (bool): Ratio of validation samples
+            zip (bool): Ratio of testing samples
+            convert_png (bool): Convert to an intermediate PNG  
+            process_func (src.preprocess_functions): Preprocess function to convert PNGs to
+            notes (str)
+
+        Returns:
+            train, test, split (tuple): List of files present in the train test split
+        """
+        path_to_annotation = {}
+        local_files =  raw_dataset(self.directory)
+
+        ### For one large dataset
+        #Make new data directory
+        annotations_folder=os.path.join(self.directory, "annotations")
+        multiframe_annotations_folder=os.path.join(self.directory, "multiframe_annotations")
+        if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
+            shutil.rmtree(annotations_folder)
+            print(f"Deleted folder: {annotations_folder}")
+        if os.path.exists(multiframe_annotations_folder) and os.path.isdir(multiframe_annotations_folder):
+            shutil.rmtree(multiframe_annotations_folder)
+            print(f"Deleted folder: {multiframe_annotations_folder}")
+        os.makedirs(annotations_folder, exist_ok=True)
+        os.makedirs(multiframe_annotations_folder, exist_ok=True)
+
+        filetype="png"
+
+        collect_dictionary:dict[str,list] = {}
+
+        for annotation_path,fits_path in tqdm(local_files.annotation_to_fits.items(), desc="Building COCO Annotations"):        
+            with open(annotation_path, 'r') as f:
+                json_data = json.load(f)
+            hdu = fits.open(fits_path)
+
+            sample_attributes, object_attributes = collect_stats(json_data, hdu, padding=20)
+
+            hdul = hdu[0]
+            header = hdul.header
+            x_res = json_data["sensor"]["width"]
+            y_res = json_data["sensor"]["height"]
+            object_list = json_data["objects"]
+            image_id= np.random.randint(0,9223372036854775806)
+            annotations = []
+            #Process all detected objects
+            try:
+                collection_id = json_data["image_set_id"]
+                collection_start_time = json_data["exp_start_time"]
+            except KeyError:
+                collection_id = str(np.random.randint(0,9223372036854775806))
+                collection_start_time = "2024-04-24T10:12:17.315000+00:00"
+            try:
+                label_type = object["datatype"]
+            except:
+                label_type = "Real"
+
+            for object in object_list:
 
 
+                if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
+                    continue
+                elif include_sats and object["class_name"] == "Satellite": 
+                    #Create coco annotation for one image
+                    x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
+                    y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
+                    width = object["bbox_width"]*x_res
+                    height = object["bbox_height"]*y_res
+                    x_center = object["x_center"]*x_res
+                    y_center = object["y_center"]*y_res
+                    if abs(width*height) > 1000:
+                        continue
+
+                    annotation = {
+                        "id": np.random.randint(0,9223372036854775806),
+                        "image_id": image_id,
+                        "collect_id":collection_id,
+                        "exp_start_time":collection_start_time,
+                        "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
+                        "category_name": object["class_name"],
+                        "type": "bbox",
+                        "centroid": [x_center,y_center],
+                        "bbox": [x1,y1,width,height],
+                        "area": abs(width*height),
+                        "iso_flux": object["iso_flux"],
+                        "exposure": header["EXPTIME"],
+                        "iscrowd": 0,
+                        "y_min": y_center-height/2,
+                        "x_min": x_center-width/2,
+                        "y_max": y_center+height/2,
+                        "x_max": x_center+width/2,
+                        "collect_id":collection_id,
+                        "exp_start_time":collection_start_time,
+                        "label_type":label_type
+                        }
+
+                if include_stars and object["class_name"] == "Star": 
+                    #Create coco annotation for one image
+                    dx1 =(object["x2"]-object["x1"])*x_res
+                    dy1 =(object["y2"]-object["y1"])*y_res
+                    deltax = abs((object["x2"]-object["x1"])*x_res)
+                    deltay = abs((object["y2"]-object["y1"])*y_res)
+                    minx = np.min([object["x2"], object["x1"]])*x_res
+                    miny = np.min([object["y2"], object["y1"]])*y_res
+                    x1 = object["x1"]*x_res
+                    y1 = object["y1"]*y_res
+                    x_center = object["x_center"]*x_res
+                    y_center = object["y_center"]*y_res
 
 
+                    annotation = {
+                        "id": np.random.randint(0,9223372036854775806),
+                        "image_id": image_id,
+                        "collect_id":collection_id,
+                        "exp_start_time":collection_start_time,
+                        "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
+                        "category_name": object["class_name"],
+                        "type": "bbox",
+                        "centroid": [x_center,y_center],
+                        "bbox": [minx,miny,deltax,deltay],
+                        "area": abs(deltax*deltay),
+                        "line": [x1,y1,dx1,dy1],
+                        "line_center": [x_center,y_center],
+                        "iso_flux": object["iso_flux"],
+                        "exposure": header["EXPTIME"],
+                        "iscrowd": 0,
+                        "collect_id":collection_id,
+                        "exp_start_time":collection_start_time,
+                        "label_type":label_type
+                        }
 
+                other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+                annotation = _merge_dicts(annotation,other_annotation_attributes )
+                annotations.append(annotation)
 
+            image = {
+                "id": image_id,
+                "width": json_data["sensor"]["width"],
+                "height": json_data["sensor"]["height"],
+                "collect_id":collection_id,
+                "exp_start_time":collection_start_time,
+                "type":"siderial" if header["TELTKRA"] == 0.0 else "rate",
+                "rate": header["TELTKRA"],
+                "exposure_seconds":header["EXPTIME"],
+                "gain":1,
+                "lat":header["SITELAT"],
+                "lon":header["CENTALT"],
+                "file_name": os.path.join("images", f"{image_id}.{filetype}"),
+                "original_path": fits_path,
+                "date": header["DATE-OBS"],
+                "label_type":label_type,
+                "raw_annotation_path":annotation_path,
+                "raw_fits_path":fits_path
+                }
+            
+            image_collect_information = {
+                "collect_id":collection_id,
+                "exp_start_time":collection_start_time,
+                "path":image["file_name"], 
+                "image_id":image["id"]}
+            is_part_of_collect = collection_id != "N/A"
+            if is_part_of_collect:
+                if collection_id not in collect_dictionary:
+                    collect_dictionary[collection_id] = []
+                    collect_dictionary[collection_id].append(image_collect_information)
+                else:
+                    collect_dictionary[collection_id].append(image_collect_information)
+            
+            image = _merge_dicts(image, sample_attributes)
 
+            #Add coco image to list of files
+            path_to_annotation[fits_path] = {"annotation":annotations, "image":image, "new_id":image_id}
+            
+        #Compile final json information for folder
+        category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
+        category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
+        categories = [category1, category2]
+        now = dt.datetime.now()
+        info = {
+            "year": now.year,
+            "version": "1.0",
+            "description": notes,
+            "contributor":"EO Solutions",
+            "date_created": now.strftime("%Y-%m-%d %H:%M:%S")}
+
+        # Compiling information for annotation file
+        images = []
+        annotations = []
+        for path in path_to_annotation.keys():
+            images.append(path_to_annotation[path]["image"])
+            annotations.extend(path_to_annotation[path]["annotation"])
+            
+        #Writing annotations to the json annotations file
+        all_data = {
+            "info": info,
+            "images": images,
+            "annotations": annotations,
+            "categories": categories,
+            "notes": notes}
+        with open(os.path.join(annotations_folder, "annotations.json"), "w") as outfile:
+            data_attributes_obj=json.dumps(all_data, indent=4)
+            outfile.write(data_attributes_obj)
+
+        #Compiling Multiframe annotation json
+        final_collections_dictionary = {}
+        for collect_id,collect_list in collect_dictionary.items():
+            new_collect_info_order = []
+            dates_list = []
+            for sub_image_info in collect_list:
+                dates_list.append(str(sub_image_info["exp_start_time"]))
+            argsort_indices = sorted(range(len(dates_list)), key=lambda i: dt.datetime.fromisoformat(dates_list[i]))
+            for index, arg_sorted_index in enumerate(argsort_indices):
+                dict_copy = collect_list[arg_sorted_index]
+                dict_copy["order"] = index
+                new_collect_info_order.append(dict_copy)
+            final_collections_dictionary[collect_id] = new_collect_info_order
+        with open(os.path.join(multiframe_annotations_folder, "multiframe_annotations.json"), "w") as outfile:
+            multiframe_annotations=json.dumps(final_collections_dictionary, indent=4)
+            outfile.write(multiframe_annotations)
+        self._save_coco_pkl()
+
+    def preprocess_images(self, preprocess_functions:list=[raw_file]):
+        for func in preprocess_functions:
+            os.makedirs(os.path.join(self.directory, f"images_{func.__name__}"), exist_ok=True)
+
+        annotations_path = os.path.join(self.directory,"annotations","annotations.json")
+        with open(annotations_path, 'r') as f:
+            json_data = json.load(f)
+            for im in tqdm(json_data["images"], desc=f"Converting images", total=len(json_data["images"])):
+                # im["id"]
+                # im["file_name"]
+                # im["raw_fits_path"]
+                for func in preprocess_functions:
+                    preprocess_path = os.path.join(self.directory, f"images_{func.__name__}")
+                    new_file_name = os.path.join(preprocess_path, f"{im["id"]}.png")
+                    hdu = fits.open(im["raw_fits_path"])
+                    hdul = hdu[0]
+                    data = hdul.data
+                    if data is None or data.size==0:
+                        print(f"{new_file_name} failed to save")
+                        continue
+                    if "16bit" in preprocess_func.__name__:
+                        data = preprocess_func(data)
+                        iio.imwrite(new_file_name, data)
+                    else: 
+                        data = preprocess_func(data)
+                        data = np.transpose(data, (1,2,0))
+                        png = Image.fromarray(data)
+                        png.save(new_file_name)
+        self._save_coco_pkl()
+
+    def set_primary_images_folder(self, preprocess_functions=raw_file):
+        original_directory = os.path.join(self.directory, f"images_{preprocess_functions.__name__}")
+        main_images_directory = os.path.join(self.directory, f"images")
+        os.makedirs(main_images_directory, exist_ok=True)
+        for file in tqdm(os.listdir(original_directory), desc=f"Transferring {preprocess_functions.__name__} Images..."):
+            original_file = os.path.join(original_directory, file)
+            shutil.copy(original_file, main_images_directory)
+        self._set_active_preprocess(preprocess_func)
+        self._save_coco_pkl()
+
+    def set_ttv_primary_images_folder(self, preprocess_functions=raw_file):
+        for subfolder in ["train","test","val"]:
+            original_directory = os.path.join(self.directory, subfolder, f"images_{preprocess_functions.__name__}")
+            main_images_directory = os.path.join(self.directory, subfolder, f"images")
+            os.makedirs(main_images_directory, exist_ok=True)
+            for file in tqdm(os.listdir(original_directory), desc=f"Transferring {preprocess_functions.__name__} Images..."):
+                original_file = os.path.join(original_directory, file)
+                shutil.copy(original_file, main_images_directory)
+            with open(os.path.join(self.directory, subfolder, f"Mode-{preprocess_functions.__name__}.txt"), 'w') as f:
+                f.write(f"Current preprocessed in images: {preprocess_functions.__name__}")
+        self._set_active_preprocess(preprocess_func)
+        self._save_coco_pkl()
+            
+    def search_for_nan(self):
+        annotations_path = os.path.join(self.directory,"annotations","annotations.json")
+        nans = 0
+        with open(annotations_path,'r') as f:
+            for i, line in enumerate(f, start=1):
+                if "NaN" in line:
+                    nans+=1
+                    print(f"Found 'nan' on line {i}: {line.strip()}")
+        self._save_coco_pkl()
+        return nans
+
+    def clear_extraneous_cache(self):
+        remove_list = ["raw_annotation", "raw_fits", "no_sidereal_images","UDL_info","wcs"]
+        folders = [name for name in os.listdir(self.directory)
+            if os.path.isdir(os.path.join(self.directory, name))
+            and name not in remove_list]
+        
+        for folder in folders:
+            shutil.rmtree(os.path.join(self.directory, folder))
+        self._remove_active_preprocess()
+        self._save_coco_pkl()
 
 def _merge_dicts(dict1:dict, dict2:dict):
     for key, value in dict2.items():

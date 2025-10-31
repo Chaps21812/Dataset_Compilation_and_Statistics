@@ -15,6 +15,7 @@ from .raw_datset import StatisticsFile
 from .collect_stats import collect_stats
 from .documentation import write_count
 from .UDL_KEY import UDL_KEY
+from .constants import SPACECRAFT
 
 
 class S3Client:
@@ -334,6 +335,135 @@ class S3Client:
 
         write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
+    def download_annotation_dates_calsats(self, date:str, download_directory:str, sort_by_date = True, limit=1000):
+        """
+        Downloads annotations and images from SILT or UDL. Given a annotation date, you can download all annotations for that day. 
+
+        Args:
+            date (str): Annotation date, you can find it when the s3 bucket is initialized
+            download_directory (str): Local path to store downloaded data
+            sort_by_date (bool): Saves files in date sorted folders according to collect date
+
+        Returns:
+            None
+        """
+        db = StatisticsFile()
+        os.makedirs(download_directory, exist_ok=True)
+
+        counter = Counter()
+
+        date = datetime.strptime(date, "%Y-%m-%d").date()
+
+        annotations = self.date_to_keystring[date]
+
+        for annotT in tqdm(annotations, desc="Downloading and Collecting Statistics"):
+        # for annotT,fitsT in tqdm(self.annotation_to_fits.items(), desc="Downloading and Collecting Statistics"):
+
+            sample_attributes = {}
+            object_attributes = []
+
+            try:
+                norad_id = os.path.basename(annotT).split(".")[0].split("sat_")[1]
+                calsat = SPACECRAFT[norad_id]
+            except: 
+                continue
+
+
+            try:
+                json_content = self._download_annotation(annotT)
+
+                if "image_set_id" in json_content:
+                    filename = f"{json_content["image_set_id"]}.{json_content["sequence_id"]}"
+                else: 
+                    filename = str(np.random.randint(0,9223372036854775806))
+
+                
+                fits_filename = filename+".fits"
+                json_filename = filename+".json"
+
+                if annotT in self.annotation_to_fits:
+                    fitsT = self.annotation_to_fits[annotT]
+                    fits_content = self._download_fits(fitsT)
+                else:
+                    url = f"https://unifieddatalibrary.com/udl/skyimagery/getFile/{json_content["image_id"]}"
+                    headers = {
+                        "Authorization": f"Basic {UDL_KEY}",
+                        "accept": "application/octet-stream"
+                    }
+                    with requests.get(url, headers=headers, stream=True) as response:
+                        response.raise_for_status()  # Raises an exception for HTTP errors
+                        file_location=os.path.join(download_directory, "temp_fits.fits")
+                        with open(file_location, "wb") as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:  # filter out keep-alive chunks
+                                    f.write(chunk)
+                    fits_content = fits.open(file_location)
+                hdu = fits_content[0].header
+
+                # if "TRKMODE" in hdu.keys():
+                #     if hdu["TRKMODE"] != 'rate':
+                        # print(f"Trackmode: {hdu["TRKMODE"]}")
+                        # continue #This causes discrepancy between downloaded files and the local files. Only downloads rate tracked images
+                
+                sample_attributes, object_attributes = collect_stats(json_content, fits_content)
+                counter.update([sample_attributes["dates"]])
+
+                if sort_by_date:
+                    #With Date Sorting
+                    json_annotation_folder = os.path.join(download_directory,sample_attributes["dates"], "raw_annotation")
+                    fits_annotation_folder = os.path.join(download_directory,sample_attributes["dates"], "raw_fits")
+                    os.makedirs(json_annotation_folder, exist_ok=True)
+                    os.makedirs(fits_annotation_folder, exist_ok=True)
+                    annot_local_path = os.path.join(json_annotation_folder, json_filename)
+                    fits_local_path = os.path.join(fits_annotation_folder, fits_filename)
+                else:
+                    #Without Date Sorting
+                    json_annotation_folder = os.path.join(download_directory, "raw_annotation")
+                    fits_annotation_folder = os.path.join(download_directory, "raw_fits")
+                    os.makedirs(json_annotation_folder, exist_ok=True)
+                    os.makedirs(fits_annotation_folder, exist_ok=True)
+                    annot_local_path = os.path.join(json_annotation_folder, json_filename)
+                    fits_local_path = os.path.join(fits_annotation_folder, fits_filename)
+
+                sample_attributes["json_path"] = annot_local_path
+                sample_attributes["fits_path"] = fits_local_path
+                for dictionary in object_attributes:
+                    dictionary["json_path"] = annot_local_path
+                    dictionary["fits_path"] = fits_local_path
+
+                if "image_set_id" in json_content:
+                    if json_content["image_set_id"] not in db.collect_dict.keys():
+                        db.collect_dict[json_content["image_set_id"]] = []
+                        db.collect_dict[json_content["image_set_id"]].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+                    else:
+                        db.collect_dict[json_content["image_set_id"]].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+                else: 
+                    if "No_Collect" not in db.collect_dict.keys():
+                        db.collect_dict["No_Collect"] = []
+                        db.collect_dict["No_Collect"].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+                    else:
+                        db.collect_dict["No_Collect"].append({"json_path":annot_local_path,"fits_path":fits_local_path})
+
+                fits_content.writeto(fits_local_path, overwrite=True)
+                with open(annot_local_path, "w") as f:
+                    json.dump(json_content, f, indent=4)
+            
+                db.add_sample_attributes(sample_attributes)
+                db.add_annotation_attributes(object_attributes)
+            
+            except ClientError:
+                print(f"Key expired on date: {date}")
+                break
+
+            except UnboundLocalError:
+                pass
+                print(f"No JSON found: {annotT}")
+        
+            except Exception as e:
+                print(f"Error processing {annotT}: {type(e).__name__}: {e}")
+
+        write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
+
     def download_data(self, download_directory:str, sort_by_date = True):
         """
         Downloads matching annotations in the download directory. Does not pull from UDL, useful for data annotated before May 2025. 
@@ -348,8 +478,8 @@ class S3Client:
         db = StatisticsFile()
         annotations_path = os.path.join(download_directory, "raw_annotation")
         fits_path = os.path.join(download_directory, "raw_fits")
-        if statistics_filename is None: statistics_filename=os.path.basename(download_directory)
-        statistics_filename = f"{statistics_filename}_Statistics.pkl"
+        # if statistics_filename is None: statistics_filename=os.path.basename(download_directory)
+        # statistics_filename = f"{statistics_filename}_Statistics.pkl"
         os.makedirs(download_directory, exist_ok=True)
         os.makedirs(annotations_path, exist_ok=True)
         os.makedirs(fits_path, exist_ok=True)
@@ -377,7 +507,7 @@ class S3Client:
 
                 if "TRKMODE" in hdu.keys():
                     if hdu["TRKMODE"] != 'rate':
-                        continue #This causes discrepancy between downloaded files and the local files. Only downloads rate tracked images
+                        print(f"Trackmode: {hdu["TRKMODE"]}") #This causes discrepancy between downloaded files and the local files. Only downloads rate tracked images
                 
                 sample_attributes, object_attributes = collect_stats(json_content, fits_content)
                 counter.update([sample_attributes["dates"]])
@@ -409,7 +539,7 @@ class S3Client:
             except Exception as e:
                 print(f"Error processing {annotT}: {e}")
 
-            db.save(os.path.join(download_directory, statistics_filename))
+            # db.save(os.path.join(download_directory, statistics_filename))
         write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
 
     def download_UDL_data(self, download_directory:str, Authorization_key:str=UDL_KEY, sort_by_date = True):

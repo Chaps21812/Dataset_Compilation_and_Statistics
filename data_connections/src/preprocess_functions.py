@@ -220,6 +220,22 @@ def channel_mixture_C(data:np.ndarray) -> np.ndarray:
 def raw_file(data: np.ndarray) -> np.ndarray:
     return  np.stack([data/65535*255]*3, axis=0).astype(np.uint8)
 
+
+def raw_file_16bit(data: np.ndarray) -> np.ndarray:
+    return  np.stack([data], axis=0).astype(np.uint16)
+
+def iqr_clipped_16bit(data, threshold=5) -> np.ndarray:
+    data = _iqr_clip(data, threshold)
+    data = (_minmax_scale(data)*65535).astype(np.uint16)
+    return data
+
+def iqr_log_16bit(data, threshold=5) -> np.ndarray:
+    data = _iqr_log(data, threshold)
+    data = (_minmax_scale(data)*65535).astype(np.uint16)
+    return data
+
+
+
 if __name__=="__main__":
         from data_connections.src.coco_tools import silt_to_coco, satsim_to_coco, merge_coco
         from preprocess_functions import channel_mixture, adaptiveIQR, zscale

@@ -150,3 +150,41 @@ SPACECRAFT= {   "44231":{ "name": "BeiDou-GEO-8", "sp3": "C01", "norad": "44231"
 }
 
 ERROR_TYPES = ["No Error", "Uncentered Box", "Severely Uncentered Box", "Missed Target", "Blank Box", "Silt Transpose Error", "Occlusion [Edge or star]", "Other", "Unknown", "Long Satellite Streak"]
+
+SITE_ALT = {"RME01": 0.1038,
+            "RME03": 0.1038,
+            "PDS-RME04": 0.1038,
+            "ABQ": 0.1038,
+            "KWAJ": 0.1038,
+            "PDS-LMNT01": 0.0201,
+            "LMNT01": 0.1038,}
+
+SITE_PARAMS = { "PDS-LMNT01" : {"idSensor": "PDS-LMNT01",
+                                "senlat": -22.218683,
+                                "senlon": 114.10265,
+                                "senalt": 0.0201},
+
+                "PDS-LMNT02" : {"idSensor": "PDS-LMNT02",
+                                "senlat": -22.218783,
+                                "senlon": 114.102717,
+                                "senalt": 0.0201},
+
+                "PDS-ABQ01" : {"idSensor": "PDS-ABQ01",
+                                "senlat": 34.96311,
+                                "senlon": -106.497249,
+                                "senalt": 1725},
+
+                "PDS-RME01" : {"idSensor": "PDS-RME01",
+                                "senlat": 20.7462,
+                                "senlon": 203.56853,
+                                "senalt": 0.1111},
+
+                "PDS-RME03" : {"idSensor": "PDS-RME03",
+                                "senlat": 20.7464,
+                                "senlon": 203.568468,
+                                "senalt": 0.1069},
+
+                "PDS-RME04" : {"idSensor": "PDS-RME04",
+                                "senlat": 20.7464,
+                                "senlon": -156.43147,
+                                "senalt": 0.1038}}

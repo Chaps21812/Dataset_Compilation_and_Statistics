@@ -1,6 +1,6 @@
 from src.raw_datset import raw_dataset
-from src.coco_tools import silt_to_coco, merge_coco
-from src.preprocess_functions import raw_file
+from src.coco_tools import COCODataset
+from src.preprocess_functions import raw_file, iqr_log
 from src.s3client import S3Client
 import os
 
@@ -42,7 +42,74 @@ if __name__ == "__main__":
     # downloader.download_annotation_dates("2025-10-20", "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/abq_test")
     # downloader.download_annotation_dates("2025-10-17", "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/abq_test")
 
-    from src.raw_datset import raw_dataset
+    # from src.raw_datset import raw_dataset
+    # parent_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025_Annotations"
+    # for date_folder in os.listdir(parent_directory):
+    #     if os.path.isdir(os.path.join(parent_directory, date_folder)):
+    #         print(date_folder)
+    #         dataset_folder_name = os.path.join(parent_directory, date_folder)
+    #         calsat = raw_dataset(dataset_folder_name)
+    #         build_annotations(dataset_folder_name)
+    #         preprocess_images(dataset_folder_name,[raw_file,iqr_log])
+    #         set_primary_images_folder(dataset_folder_name,iqr_log)
+    #         train_test_split(dataset_folder_name)
+    #         set_ttv_primary_images_folder(dataset_folder_name, preprocess_functions=raw_file)
+    #         set_ttv_primary_images_folder(dataset_folder_name, preprocess_functions=iqr_log)
+            
 
-    calsat = raw_dataset("/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/CalSatLMNT01-2024")
-    calsat.plate_solve()
+    # from src.raw_datset import raw_dataset
+    # from src.utilities import get_folders_in_directory
+    # import os
+
+    # directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/ABQ01-2025-Annotations"
+    # # new_calsat_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Calsats-ABQ01-2025"
+    # new_calsat_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Calsats-RME04-2024"
+
+    # # fits_dir = os.path.join(new_calsat_directory, "raw_fits")
+    # # for folder in get_folders_in_directory(directory): 
+    # #     if "2024" in folder: continue
+    # #     df = raw_dataset(folder)
+    # #     df.create_calsat_dataset(new_calsat_directory, move_mode="copy")
+    # #     if len(os.listdir(fits_dir)) > 2000:
+    # #         break
+
+    # # new_calsats = raw_dataset(new_calsat_directory)
+    # # new_calsats.complete_calsat_dataset()
+
+    # clear_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04-2025-Annotations"
+
+    # for folder in get_folders_in_directory(clear_directory): 
+    #     clear_extraneous_cache(folder)
+
+
+    # from src.coco_tools import build_annotations, generate_TTV_split, move_fits_to_train_test_split,clear_extraneous_cache
+    # from src.preprocess_functions import iqr_log
+
+    # direc = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04-2025-Annotations/2025-06-01"
+
+    # clear_extraneous_cache(direc)
+    # build_annotations(direc)
+    # generate_TTV_split(direc)
+    # move_fits_to_train_test_split(direc, iqr_log)
+
+    # from src.raw_datset import raw_dataset
+
+    # A = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/CalSatLMNT01-2024"
+    # B = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Calsats-ABQ01-2025"
+    # C = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Calsats-LMNT01-2024"
+    # D = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Calsats-LMNT02-2024"
+    # E = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Finalized_datasets/Calsats-RME04-2024"
+
+    # for path in [A,B,C,D,E]:
+    #     df = raw_dataset(path)
+    #     df.recalculate_statistics()
+
+
+
+    from src.utilities import search_image_id, get_folders_in_directory
+
+    new_calsat_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025_Annotations"
+
+    for folder in get_folders_in_directory(new_calsat_directory): 
+        search_image_id(folder, "Ed5e4328")
+    
