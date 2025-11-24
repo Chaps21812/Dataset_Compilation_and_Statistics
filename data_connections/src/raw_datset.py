@@ -13,6 +13,8 @@ import ipywidgets as widgets
 from IPython.display import display
 import requests
 from collections import Counter
+import base64
+from datetime import timedelta
 
 from .astrometric_localization import detect_stars, match_to_catalogue, skycoord_to_pixels
 from .collect_stats import collect_stats, collect_satsim_stats, _find_new_centroid, _find_centroid_COM
@@ -212,8 +214,12 @@ class raw_dataset():
         Returns:
             None
         """
-        self.statistics_file.save(self.statistics_filename)
-        write_count(os.path.join(self.directory, "count.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
+        
+        try:
+            self.statistics_file.save(self.statistics_filename)
+            write_count(os.path.join(self.directory, "count.txt"), len(self.statistics_file.sample_attributes), len(self.statistics_file.annotation_attributes), self.statistics_file.sample_attributes['dates'].value_counts().to_dict())
+        except KeyError:
+            print("EMPTY FOLDER NO FILES DETECTED")
 
     def delete_files_from_annotation(self, path_series: pd.DataFrame):
         """
@@ -818,6 +824,7 @@ class raw_dataset():
         Returns:
             None
         """
+        self.recalculate_statistics()
         os.makedirs(new_dataset_directory, exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_fits"), exist_ok=True)
         os.makedirs(os.path.join(new_dataset_directory, "raw_annotation"), exist_ok=True)
@@ -869,12 +876,40 @@ class raw_dataset():
                 #     continue
                 subset_database.current_index +=1
                 subset_database.save(os.path.join(self.directory, "calsats.pkl"))
-            if calsats > percentage_limit*total_images: break
+            if calsats > percentage_limit*total_images: 
+                break
         print(f"Num calsats: {calsats}")
-        with open(os.path.join(new_dataset_directory, "original_paths.txt"), 'w') as f:
-            original_paths = {"original_jsons":json_origins, "original_fits":fits_origins}
-            json.dump(original_paths, f, indent=4)
 
+        # Check if the file exists
+        original_tracking_path = os.path.join(new_dataset_directory, "original_paths.json")
+        if not os.path.exists(original_tracking_path):
+            # Create it with the new entries
+            original_paths = {"original_jsons":json_origins, "original_fits":fits_origins}
+            with open(original_tracking_path, "w") as f:
+                json.dump(original_paths, f, indent=4)
+            # print(f"Created new JSON file: {original_tracking_path}")
+        else:
+            # Load existing data and append
+            with open(original_tracking_path, "r") as f:
+                try:
+                    data = json.load(f)
+                    if not isinstance(data, dict):
+                        raise ValueError("Existing JSON is not a list")
+                except json.JSONDecodeError:
+                    data = {}
+
+            original_paths = {"original_jsons":json_origins|data["original_jsons"], "original_fits":fits_origins|data["original_fits"]}
+
+            with open(original_tracking_path, "w") as f:
+                json.dump(original_paths, f, indent=4)
+            # print(f"Appended entries to {original_tracking_path}")
+
+
+        # with open(os.path.join(new_dataset_directory, "original_paths.json"), 'rw') as f:
+        #     original_paths = {"original_jsons":json_origins, "original_fits":fits_origins}
+        #     json.dump(original_paths, f, indent=4)
+        if calsats > 0:
+            raw_dataset(new_dataset_directory).recalculate_statistics()
         if calsats > 0 and move_mode == "move":
             self.recalculate_statistics()
 
@@ -1123,10 +1158,19 @@ class raw_dataset():
         delete_collects = []
         os.makedirs(os.path.join(self.directory, "no_sidereal_images"), exist_ok=True)
         os.makedirs(os.path.join(self.directory, "UDL_info"), exist_ok=True)
+        os.makedirs(os.path.join(self.directory, "UDL_daily_TLEs"), exist_ok=True)
         os.makedirs(os.path.join(self.directory, "no_sidereal_images", "raw_annotation"), exist_ok=True)
         os.makedirs(os.path.join(self.directory, "no_sidereal_images", "raw_fits"), exist_ok=True)
 
+
+
         all_fits_files = os.listdir(os.path.join(self.directory, "raw_fits"))
+        satelites = set()
+        dates = set()
+        day_window = timedelta(days=1)
+        date_ranges = []
+
+
 
         for collect_id,sequence_length in tqdm(self.sequence_lengths.items(), desc="Downloading Sidereal frame"):
             query_URL = f"https://unifieddatalibrary.com/udl/skyimagery?expStartTime=>2020-01-01T00%3A00%3A00.000000Z&imageSetId={collect_id}"
@@ -1140,10 +1184,31 @@ class raw_dataset():
             with requests.get(query_URL, headers=query_headers, stream=True) as response:
                 response.raise_for_status()  # Raises an exception for HTTP errors
                 jsoone = response.json()
+                min_date = 0
+                max_date = 0
                 for item in jsoone:
                     if item["sequenceId"] > max_sequence_id:
                         max_sequence_id = max(max_sequence_id, item["sequenceId"])
                         max_id = item["id"]
+
+                        if "idOnOrbit" in item.keys():
+                            satelites.add(item["idOnOrbit"])
+                        elif "origObjectId" in item.keys():
+                            satelites.add(item["origObjectId"])
+                        else:continue
+                        current_date = datetime.fromisoformat(item["expStartTime"].replace("Z", "+00:00"))
+                        dates.add(item["expStartTime"].split("T")[0])
+                        if min_date ==0 and max_date==0:
+                            min_date=current_date
+                            max_date=current_date
+                        else:
+                            min_date=min(min_date,current_date)
+                            max_date=max(max_date,current_date) 
+                if min_date != 0:
+                    min_date = min_date-day_window
+                    max_date = max_date+day_window
+                    date_ranges.append({"min_date":min_date, "max_date":max_date})
+
             with open(os.path.join(self.directory,  "UDL_info", f"{collect_id}.UDL"),'w') as F:
                 json.dump(jsoone, F, indent=4)
 
@@ -1189,6 +1254,33 @@ class raw_dataset():
                         pass
             else:
                 shutil.move(os.path.join(self.directory, "temp_fits.fits"), os.path.join(self.directory, "raw_fits",f"{collect_id}.sidereal.fits"))
+    
+        satnumstring = ""
+        for num in satelites:
+            satnumstring = satnumstring+f"{num},"
+        satnumstring = satnumstring[:-1]
+
+        for daterange in date_ranges:
+            min_date_str = daterange["min_date"].isoformat().replace("+00:00", "Z").replace(":","%3A")
+            max_date_str = daterange["max_date"].isoformat().replace("+00:00", "Z").replace(":","%3A")
+            query_URL = f"https://unifieddatalibrary.com/udl/elset?epoch={min_date_str}..{max_date_str}&satNo={satnumstring}"
+            query_headers = {
+                "Authorization": f"Basic {UDL_KEY}",
+                "accept": "application/json"
+            }
+
+            with requests.get(query_URL, headers=query_headers, stream=True) as response:
+                response.raise_for_status()  # Raises an exception for HTTP errors
+                elset_json = response.json()
+            for item in elset_json:
+                date = datetime.fromisoformat(item["epoch"].replace("Z", "+00:00"))
+                if "satNo" in item.keys():
+                    if date.date().isoformat() in dates:
+                        with open(os.path.join(self.directory, "UDL_daily_TLEs", f"{date.date().isoformat()}.txt"),'a') as g:
+                            g.write(f"{item["line1"]}\n")
+                            g.write(f"{item["line2"]}\n")                    
+                    
+        
         self.recalculate_statistics()
 
     def rename_files(self):
@@ -1207,8 +1299,93 @@ class raw_dataset():
             shutil.move(os.path.join(fits_path), os.path.join(fits_path_original,new_fits_name))
         self.recalculate_statistics()
 
+    def reinitialize_raw_dataset(self):
+        if os.path.exists(os.path.join(self.directory,f"dataset_statistics.pkl")):
+            os.remove(os.path.join(self.directory,f"dataset_statistics.pkl"))
+            self.__init__(self.directory)
 
-        
+    def encode_fits_collects(self, num_collects:int):
+        encoded_strings = []
+        for index, (collect_id, collect_path_list) in enumerate(self.collect_dict.items()):
+            b64_encoded_strings = []
+            for image_path in collect_path_list:
+                with open(image_path["fits_path"], "rb") as f:
+                    file_bytes = f.read()
+                    b64_encoded_strings.append({"file":base64.b64encode(file_bytes).decode("utf-8")})
+            encoded_strings.append(b64_encoded_strings)
+            if index>num_collects:
+                break
+        return encoded_strings
+
+    def download_TLEs(self):
+        """
+        Downloads annotations and images from SILT or UDL. Given a annotation date, you can download all annotations for that day. 
+
+        Args:
+            date (str): Annotation date, you can find it when the s3 bucket is initialized
+            download_directory (str): Local path to store downloaded data
+            sort_by_date (bool): Saves files in date sorted folders according to collect date
+
+        Returns:
+            None
+        """
+
+        os.makedirs(os.path.join(self.directory, "UDL_daily_TLEs"), exist_ok=True)
+
+        satelites = set()
+        dates = set()
+        day_window = timedelta(days=2)
+        date_ranges = []
+
+        for file in os.listdir(os.path.join(self.directory, "UDL_info")):
+            with open(os.path.join(self.directory, "UDL_info", file),'r') as f:
+                jsoone = json.load(f)
+                min_date = 0
+                max_date = 0
+                for item in jsoone:
+                    if "idOnOrbit" in item.keys():
+                        satelites.add(item["idOnOrbit"])
+                    elif "origObjectId" in item.keys():
+                        satelites.add(item["origObjectId"])
+                    else:continue
+                    current_date = datetime.fromisoformat(item["expStartTime"].replace("Z", "+00:00"))
+                    dates.add(item["expStartTime"].split("T")[0])
+                    if min_date ==0 and max_date==0:
+                        min_date=current_date
+                        max_date=current_date
+                    else:
+                        min_date=min(min_date,current_date)
+                        max_date=max(max_date,current_date) 
+                if min_date != 0:
+                    min_date = min_date-day_window
+                    max_date = max_date+day_window
+                    date_ranges.append({"min_date":min_date, "max_date":max_date})
+    
+        satnumstring = ""
+        for num in satelites:
+            satnumstring = satnumstring+f"{num},"
+        satnumstring = satnumstring[:-1]
+
+        for daterange in tqdm(date_ranges, desc="Querying Date Ranges"):
+            min_date_str = daterange["min_date"].isoformat().replace("+00:00", "Z").replace(":","%3A")
+            max_date_str = daterange["max_date"].isoformat().replace("+00:00", "Z").replace(":","%3A")
+            query_URL = f"https://unifieddatalibrary.com/udl/elset?epoch={min_date_str}..{max_date_str}&satNo={satnumstring}"
+            query_headers = {
+                "Authorization": f"Basic {UDL_KEY}",
+                "accept": "application/json"
+            }
+
+            with requests.get(query_URL, headers=query_headers, stream=True) as response:
+                response.raise_for_status()  # Raises an exception for HTTP errors
+                elset_json = response.json()
+            for item in elset_json:
+                date = datetime.fromisoformat(item["epoch"].replace("Z", "+00:00"))
+                if "satNo" in item.keys():
+                    if date.date().isoformat() in dates:
+                        with open(os.path.join(self.directory, "UDL_daily_TLEs", f"{date.date().isoformat()}.txt"),'a') as g:
+                            g.write(f"{item["line1"]}\n")
+                            g.write(f"{item["line2"]}\n")                    
+                        
 
 def _error_input_prompt():
     current_input = input("Enter error number: ")

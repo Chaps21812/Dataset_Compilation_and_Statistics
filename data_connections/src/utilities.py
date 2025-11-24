@@ -10,6 +10,9 @@ from tqdm import tqdm
 from collections import Counter
 import matplotlib.pyplot as plt
 import numpy as np
+import cv2
+import imageio.v3 as iio
+from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
 
 def search_image_id(directory, fits_uuid):
     for file in os.listdir(os.path.join(directory,"raw_annotation")):
@@ -378,7 +381,32 @@ def get_bbox_sizes(directory, save_directory=None, save_type="pdf", color="#AABB
     print(f"AVG width={np.average(bbox_widths):.2f}, Median width={np.median(bbox_widths):.2f}, Min width={np.min(bbox_widths):.2f}, max width={np.max(bbox_widths):.2f}")
     print(f"AVG height={np.average(bbox_heights):.2f}, Median height={np.median(bbox_heights):.2f}, Min height={np.min(bbox_heights):.2f}, max height={np.max(bbox_widths):.2f}")
 
+def convert_collect_to_mp4(directory, FPS=10):
+    os.makedirs(os.path.join(directory,"mp4s"), exist_ok=True)
+    with open(os.path.join(directory,"multiframe_annotations",'multiframe_annotations.json'), 'r') as f:
+        data = json.load(f)
+        for collect_id,collect_list in data.items():
+            path_list = []
+            image_list = []
+            for image in collect_list:
+                img16 = iio.imread(os.path.join(directory,image["path"])) 
+                img8 = (img16 / 256).astype("uint8")  
+                img_rgb = np.stack([img8]*3, axis=-1) 
+                image_list.append(img_rgb)
+            clip = ImageSequenceClip(image_list, fps=FPS)
+            clip.write_videofile(os.path.join(directory,"mp4s",f'{collect_id}.mp4'), codec="libx264", fps=FPS, audio=False)
 
+def get_pixel_count(directory):
+    count = 0
+    with open(os.path.join(directory, "annotations", "annotations.json"),'r') as f:
+        data = json.load(f)
+        for image in data["images"]:
+            if "NAXIS1" in image.keys(): count += image["NAXIS1"]*image["NAXIS2"]
+            else: count += image["width"]*image["height"]
+    return count
+
+            
+    
 
 
 

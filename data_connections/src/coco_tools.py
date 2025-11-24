@@ -12,6 +12,7 @@ from tqdm import tqdm
 from astropy.io import fits
 import imageio.v3 as iio
 from PIL import Image
+import uuid
 from .collect_stats import collect_stats, collect_satsim_stats
 from .image_chipping import generate_training_crops
 from .constants import SPACECRAFT
@@ -1377,6 +1378,197 @@ def build_coco_satnet(satnet_directory:str, destination_path:str, preprocess_fun
             # png = Image.fromarray(data)
             # png.save(new_file_name)
 
+def build_raw_satnet(satnet_directory:str, destination_path:str, notes:str=""):
+    raw_annotation_directory = os.path.join(satnet_directory, "raw_data")
+    path_to_annotation = {}
+
+    ### For one large dataset
+    #Make new data directory
+    images_folder=os.path.join(destination_path, "raw_fits")
+    annotations_folder=os.path.join(destination_path, "raw_annotation")
+    multiframe_annotations_folder=os.path.join(destination_path, "multiframe_annotations")
+    if os.path.exists(images_folder) and os.path.isdir(images_folder):
+        shutil.rmtree(images_folder)
+        print(f"Deleted folder: {images_folder}")
+    if os.path.exists(annotations_folder) and os.path.isdir(annotations_folder):
+        shutil.rmtree(annotations_folder)
+        print(f"Deleted folder: {annotations_folder}")
+    if os.path.exists(multiframe_annotations_folder) and os.path.isdir(multiframe_annotations_folder):
+        shutil.rmtree(multiframe_annotations_folder)
+        print(f"Deleted folder: {multiframe_annotations_folder}")
+    os.makedirs(images_folder, exist_ok=True)
+    os.makedirs(annotations_folder, exist_ok=True)
+    os.makedirs(multiframe_annotations_folder, exist_ok=True)
+
+    filetype="png"
+
+    collect_dictionary:dict[str,list] = {}
+
+    for folder in tqdm(os.listdir(raw_annotation_directory), desc="Converting SatNet to COCO"):
+        annotation_folder = os.path.join(raw_annotation_directory, folder, "Annotations")
+        fits_folder =os.path.join(raw_annotation_directory, folder, "ImageFiles")
+
+        for annotation_path,fits_path in tqdm(zip(os.listdir(annotation_folder), os.listdir(fits_folder)), desc=f"Converting {folder} to COCO"):        
+            annotation_path = os.path.join(annotation_folder, annotation_path)
+            fits_path = os.path.join(fits_folder, fits_path)
+            
+            with open(annotation_path, 'r') as f:
+                try: 
+                    json_data = json.load(f)
+                    try:
+                        json_data = json_data["data"]
+                    except KeyError:
+                        json_data = json_data
+                except  UnicodeDecodeError: continue
+            hdu = fits.open(fits_path)
+
+
+            sample_attributes, object_attributes = collect_stats(json_data, hdu, padding=20)
+
+            hdul = hdu[0]
+            header = hdul.header
+            x_res = json_data["sensor"]["width"]
+            y_res = json_data["sensor"]["height"]
+            object_list = json_data["objects"]
+            image_id= np.random.randint(0,9223372036854775806)
+            annotations = []
+            #Process all detected objects
+            try:
+                collection_id = json_data["image_set_id"]
+                collection_start_time = json_data["exp_start_time"]
+            except KeyError:
+                collection_id = str(np.random.randint(0,9223372036854775806))
+                collection_start_time = "2024-04-24T10:12:17.315000+00:00"
+
+            label_type = "SatNet"
+
+            try:
+                norad_id = fits_path.split(".")[0]
+                spacecraft = SPACECRAFT[norad_id]
+            except:
+                spacecraft = "None"
+
+            for object in object_list:
+                #Create coco annotation for one image
+                x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
+                y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
+                width = object["bbox_width"]*x_res
+                height = object["bbox_height"]*y_res
+                x_center = object["x_center"]*x_res
+                y_center = object["y_center"]*y_res
+                if abs(width*height) > 1000:
+                    continue
+
+                annotation = {
+                    "id": np.random.randint(0,9223372036854775806),
+                    "image_id": image_id,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
+                    "category_id": int(object["class_id"]),# Originallly class_id-1, not sure why
+                    "category_name": object["class_name"],
+                    "type": "bbox",
+                    "centroid": [x_center,y_center],
+                    "bbox": [x1,y1,width,height],
+                    "area": abs(width*height),
+                    "exposure": header["EXPTIME"],
+                    "iscrowd": 0,
+                    "y_min": y_center-height/2,
+                    "x_min": x_center-width/2,
+                    "y_max": y_center+height/2,
+                    "x_max": x_center+width/2,
+                    "collect_id":collection_id,
+                    "exp_start_time":collection_start_time,
+                    "label_type":label_type
+                    }
+
+                try: other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+                except KeyError: other_annotation_attributes = {}
+                annotation = _merge_dicts(annotation,other_annotation_attributes )
+                annotations.append(annotation)
+
+            image = {
+                "id": image_id,
+                "width": json_data["sensor"]["width"],
+                "height": json_data["sensor"]["height"],
+                "collect_id":collection_id,
+                "exp_start_time":collection_start_time,
+                "type":"siderial" if header["TELTKRA"] == 0.0 else "rate",
+                "rate": header["TELTKRA"],
+                "exposure_seconds":header["EXPTIME"],
+                "gain":1,
+                "lat":header["SITELAT"],
+                "lon":header["CENTALT"],
+                "file_name": os.path.join("images", f"{image_id}.{filetype}"),
+                "original_path": fits_path,
+                "date": header["DATE-OBS"],
+                "spacecraft":spacecraft,
+                "label_type":label_type}
+            
+            image_collect_information = {
+                "collect_id":collection_id,
+                "exp_start_time":collection_start_time,
+                "path":image["file_name"], 
+                "image_id":image["id"]}
+            is_part_of_collect = collection_id != "N/A"
+            if is_part_of_collect:
+                if collection_id not in collect_dictionary:
+                    collect_dictionary[collection_id] = []
+                    collect_dictionary[collection_id].append(image_collect_information)
+                else:
+                    collect_dictionary[collection_id].append(image_collect_information)
+            
+            image = _merge_dicts(image, sample_attributes)
+
+            #Add coco image to list of files
+            path_to_annotation[fits_path] = {"annotation":annotations, "image":image, "new_id":image_id}
+
+            shutil.copy(fits_path,os.path.join(images_folder, os.path.basename(fits_path)))
+            shutil.copy(annotation_path,os.path.join(annotations_folder, os.path.basename(annotation_path)))
+
+        
+    #Compile final json information for folder
+    category1 = {"id": 1,"name": "Satellite","supercategory": "Space Object",}
+    category2 = {"id": 2,"name": "Star","supercategory": "Space Object",}
+    categories = [category1, category2]
+    now = dt.datetime.now()
+    info = {
+        "year": now.year,
+        "version": "1.0",
+        "description": notes,
+        "contributor":"EO Solutions",
+        "date_created": now.strftime("%Y-%m-%d %H:%M:%S")}
+
+    # Compiling information for annotation file
+    images = []
+    annotations = []
+    for path in path_to_annotation.keys():
+        images.append(path_to_annotation[path]["image"])
+        annotations.extend(path_to_annotation[path]["annotation"])
+        
+    #Writing annotations to the json annotations file
+    all_data = {
+        "info": info,
+        "images": images,
+        "annotations": annotations,
+        "categories": categories,
+        "notes": notes}
+
+    #Compiling Multiframe annotation json
+    final_collections_dictionary = {}
+    for collect_id,collect_list in collect_dictionary.items():
+        new_collect_info_order = []
+        dates_list = []
+        for sub_image_info in collect_list:
+            dates_list.append(str(sub_image_info["exp_start_time"]))
+        argsort_indices = sorted(range(len(dates_list)), key=lambda i: dt.datetime.fromisoformat(dates_list[i]))
+        for index, arg_sorted_index in enumerate(argsort_indices):
+            dict_copy = collect_list[arg_sorted_index]
+            dict_copy["order"] = index
+            new_collect_info_order.append(dict_copy)
+        final_collections_dictionary[collect_id] = new_collect_info_order
+    with open(os.path.join(multiframe_annotations_folder, "multiframe_annotations.json"), "w") as outfile:
+        multiframe_annotations=json.dumps(final_collections_dictionary, indent=4)
+        outfile.write(multiframe_annotations)
 
 # New age coco handling
 def train_test_split(directory:str, notes:str="", train_ratio=0.8, val_ratio=0.10, test_ratio=0.10):
@@ -1525,7 +1717,8 @@ class COCODataset(PickleSerializable):
     
     def _remove_active_preprocess(self):
         self.active_preprocessing = None
-        os.remove(os.path.join(self.directory, "active_preprocessing.txt"))
+        if os.path.exists(os.path.join(self.directory, "active_preprocessing.txt")):
+            os.remove(os.path.join(self.directory, "active_preprocessing.txt"))
 
     def generate_TTV_split(self, notes:str="", train_ratio=0.8, val_ratio=0.10, test_ratio=0.10):
         """
@@ -1732,11 +1925,15 @@ class COCODataset(PickleSerializable):
 
             sample_attributes, object_attributes = collect_stats(json_data, hdu, padding=20)
 
+            if "data" in json_data.keys():
+                json_data = json_data["data"]
+
+
             hdul = hdu[0]
             header = hdul.header
-            x_res = json_data["sensor"]["width"]
+            x_res = json_data["sensor"]["width"] 
             y_res = json_data["sensor"]["height"]
-            object_list = json_data["objects"]
+            object_list = json_data["objects"] 
             image_id= np.random.randint(0,9223372036854775806)
             annotations = []
             #Process all detected objects
@@ -1754,9 +1951,9 @@ class COCODataset(PickleSerializable):
             for object in object_list:
 
 
-                if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
-                    continue
-                elif include_sats and object["class_name"] == "Satellite": 
+                # if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
+                #     continue
+                if include_sats and object["class_name"] == "Satellite": 
                     #Create coco annotation for one image
                     x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
                     y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
@@ -1778,7 +1975,7 @@ class COCODataset(PickleSerializable):
                         "centroid": [x_center,y_center],
                         "bbox": [x1,y1,width,height],
                         "area": abs(width*height),
-                        "iso_flux": object["iso_flux"],
+                        # "iso_flux": object["iso_flux"] if "iso_flux" in object.keys() else object["flux"],
                         "exposure": header["EXPTIME"],
                         "iscrowd": 0,
                         "y_min": y_center-height/2,
@@ -1790,7 +1987,7 @@ class COCODataset(PickleSerializable):
                         "label_type":label_type
                         }
 
-                if include_stars and object["class_name"] == "Star": 
+                elif include_stars and object["class_name"] == "Star": 
                     #Create coco annotation for one image
                     dx1 =(object["x2"]-object["x1"])*x_res
                     dy1 =(object["y2"]-object["y1"])*y_res
@@ -1824,8 +2021,15 @@ class COCODataset(PickleSerializable):
                         "exp_start_time":collection_start_time,
                         "label_type":label_type
                         }
+                else: annotation={}
 
-                other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+                try: 
+                    other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+                except KeyError: 
+                    object["correlation_id"] = uuid.uuid4()
+                    other_annotation_attributes = _find_dict(object["correlation_id"], object_attributes)
+
+
                 annotation = _merge_dicts(annotation,other_annotation_attributes )
                 annotations.append(annotation)
 
@@ -1935,11 +2139,11 @@ class COCODataset(PickleSerializable):
                     if data is None or data.size==0:
                         print(f"{new_file_name} failed to save")
                         continue
-                    if "16bit" in preprocess_func.__name__:
-                        data = preprocess_func(data)
+                    if "16bit" in func.__name__:
+                        data = func(data)
                         iio.imwrite(new_file_name, data)
                     else: 
-                        data = preprocess_func(data)
+                        data = func(data)
                         data = np.transpose(data, (1,2,0))
                         png = Image.fromarray(data)
                         png.save(new_file_name)
@@ -1952,7 +2156,7 @@ class COCODataset(PickleSerializable):
         for file in tqdm(os.listdir(original_directory), desc=f"Transferring {preprocess_functions.__name__} Images..."):
             original_file = os.path.join(original_directory, file)
             shutil.copy(original_file, main_images_directory)
-        self._set_active_preprocess(preprocess_func)
+        self._set_active_preprocess(preprocess_functions)
         self._save_coco_pkl()
 
     def set_ttv_primary_images_folder(self, preprocess_functions=raw_file):
@@ -1980,15 +2184,125 @@ class COCODataset(PickleSerializable):
         return nans
 
     def clear_extraneous_cache(self):
-        remove_list = ["raw_annotation", "raw_fits", "no_sidereal_images","UDL_info","wcs"]
+        remove_list = ["images"]
         folders = [name for name in os.listdir(self.directory)
             if os.path.isdir(os.path.join(self.directory, name))
-            and name not in remove_list]
+            and name in remove_list]
         
         for folder in folders:
             shutil.rmtree(os.path.join(self.directory, folder))
         self._remove_active_preprocess()
         self._save_coco_pkl()
+
+    def remove_corrupt_annotations(self):
+        subfolder_names = ["train","test","val"]
+        self.directory
+
+        path = os.path.join(self.directory, "annotations", "annotations.json")
+        self._remove_zeroed_annotations(path)
+        for fname in subfolder_names:
+            if fname in os.listdir(self.directory):
+                path = os.path.join(self.directory, fname, "annotations", "annotations.json")
+                self._remove_zeroed_annotations(path)
+
+    def _remove_zeroed_annotations(self,path):
+        with open(path,'r') as f:
+            data = json.load(f)
+        before_len = len(data["annotations"])
+        data["annotations"] = [annot for annot in data["annotations"] if annot["bbox"][2] >0 and annot["bbox"][3] >0]
+        after_len = len(data["annotations"])
+        if before_len-after_len >0:
+            print(path)
+            print(f"Removed Annotations: {before_len-after_len}")
+        with open(path,'w') as f:
+            json.dump(data, f, indent=4)
+
+    def archive_ttv_splits(self, name):
+        archived_ttv_splits_path = os.path.join(self.directory,"archived_TTV_splits")
+        os.makedirs(archived_ttv_splits_path, exist_ok=True)
+        titles = ["train","val","test"]
+        for title in titles:
+            annotations_alias = os.path.join(self.directory, title, "annotations", "annotations.json")
+            shutil.copy(annotations_alias, os.path.join(archived_ttv_splits_path, f"{name}-{title}-annotations.json"))
+
+    def convert_test_images(self, preprocess_func=raw_file):
+        """
+        Generates a coco dataset from a list of coco datasets and compiles them into one destination. Generates a train test split based on collect.
+
+        Args:
+            coco_directories (list[str]): List of paths of coco datasets. Raw datasets must be converted to coco before merging
+            destination_path (str): Destination of the merged dataset
+            notes (str): Notes to add onto the dataset annotation file for future use
+            train_test_split (bool): Bool to create a train test split or not
+            train_ratio (float): Ratio of training samples
+            val_ratio (float): Ratio of validation samples
+            test_ratio (float): Ratio of testing samples
+            zip (bool): Number of partitions to divide your data into
+
+        Returns:
+            None
+        """
+        titles = ["test"]
+        for j, split_name in enumerate(titles):
+            ### For one large dataset
+            # Save annotation data to corresponding train test json
+            #Make new data directory
+            data_folder = self.directory
+            subset_folder = os.path.join(data_folder, titles[j])
+            images_alias = os.path.join(data_folder, titles[j], "images")
+            annotations_alias = os.path.join(data_folder, titles[j], "annotations")
+            annotations_json = os.path.join(data_folder, titles[j], "annotations", "annotations.json")
+            with open(annotations_json, 'r') as f:
+                data = json.load(f)
+                for image in tqdm(data["images"], desc="Copying images", total=len(data["images"])):
+                    base_image_name = os.path.basename(f"{image["id"]}.png")
+                    original_image = image["raw_fits_path"]
+                    new_location = os.path.join(images_alias, base_image_name)
+
+                    hdu = fits.open(original_image)
+                    hdul = hdu[0]
+                    data = hdul.data
+                    if data is None or data.size==0:
+                        print(f"{original_image} failed to save")
+                        continue
+                    if "16bit" in preprocess_func.__name__:
+                        data = preprocess_func(data)
+                        iio.imwrite(new_location, data)
+                    else: 
+                        data = preprocess_func(data)
+                        data = np.transpose(data, (1,2,0))
+                        png = Image.fromarray(data)
+                        png.save(new_location)
+        self._set_active_preprocess(preprocess_func)
+        self._save_coco_pkl()
+
+class CalsatDataset(COCODataset):
+    def __init__(self, data_directory):
+        super().__init__(data_directory)
+
+    def return_files(self):
+        with open(os.path.join(self.directory, "original_paths.json"),'r') as f:
+            data = json.load(f)
+            dirnames = []
+            try: 
+                for key,value in data["original_jsons"].items():
+                    dirname = os.path.dirname(os.path.dirname(value))
+                    if dirname not in dirnames:
+                        dirnames.append(dirname)
+                    if os.path.exists(value):
+                        continue
+                    else:
+                        shutil.move(key,value)
+                for key,value in data["original_fits"].items():
+                    if os.path.exists(value):
+                        continue
+                    else:
+                        shutil.move(key,value)
+            except FileNotFoundError:
+                print(f"{key}:{value}")
+
+            for dname in dirnames:
+                raw_dataset(dname).recalculate_statistics()
 
 def _merge_dicts(dict1:dict, dict2:dict):
     for key, value in dict2.items():

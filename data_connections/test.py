@@ -106,10 +106,50 @@ if __name__ == "__main__":
 
 
 
-    from src.utilities import search_image_id, get_folders_in_directory
+    # from src.utilities import search_image_id, get_folders_in_directory
+    # from src.coco_tools import CalsatDataset
+    # from src.raw_datset import raw_dataset
 
-    new_calsat_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME01-2025_Annotations"
+    # calsat_a = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/ABQ01-2025-Annotations/2025-09-01_copy"
+    # calsat_b = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/ABQ01-2025-Annotations/2025-09-02_copy"
+ 
+    # print(len(os.listdir(os.path.join(calsat_a, "raw_annotation"))))
+    # print(len(os.listdir(os.path.join(calsat_b, "raw_annotation"))))
 
-    for folder in get_folders_in_directory(new_calsat_directory): 
-        search_image_id(folder, "Ed5e4328")
+    # bruh = raw_dataset(calsat_a)
+    # bruh.create_calsat_dataset("/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Testing_Datasets/moving_test", percentage_limit=.50, move_mode="move")
+    # bruh = raw_dataset(calsat_b)
+    # bruh.create_calsat_dataset("/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Testing_Datasets/moving_test", percentage_limit=.50, move_mode="move")
+
+    # print(len(os.listdir(os.path.join(calsat_a, "raw_annotation"))))
+    # print(len(os.listdir(os.path.join(calsat_b, "raw_annotation"))))
     
+    # bruh2 = CalsatDataset("/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/Testing_Datasets/moving_test")
+    # bruh2.return_files()
+
+    # print(len(os.listdir(os.path.join(calsat_a, "raw_annotation"))))
+    # print(len(os.listdir(os.path.join(calsat_b, "raw_annotation"))))    # bruh2.return_files()
+    
+    from src.raw_datset import raw_dataset
+    from src.coco_tools import COCODataset
+    import os
+    test_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04-2025-Annotations-Errors/2024-08-28"
+    new_calsat_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/CalsatTesting_datasets/Calsat_Final-RME04-2025"
+
+    telescope_directory = "/data/Dataset_Compilation_and_Statistics/Sentinel_Datasets/RME04-2025-Annotations-Errors"
+
+    telescope_basename = os.path.basename(telescope_directory)
+    for date_folder in os.listdir(telescope_directory):
+        subfolder = os.path.join(telescope_directory, date_folder)
+        if os.path.isdir(subfolder):
+            dataset = raw_dataset(subfolder)
+            dataset.reinitialize_raw_dataset()
+            dataset.correct_annotations()
+            dataset.create_calsat_dataset(new_calsat_directory, move_mode="move", percentage_limit=0.20)
+            coco_dataset = COCODataset(subfolder)
+            coco_dataset.clear_extraneous_cache()
+            coco_dataset.build_annotations()
+            coco_dataset.generate_TTV_split(train_ratio=0.89,val_ratio=0.11,test_ratio=0)
+            coco_dataset.move_fits_to_train_test_split()
+
+

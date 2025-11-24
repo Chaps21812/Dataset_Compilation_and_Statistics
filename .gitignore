@@ -1,8 +1,10 @@
 aws
 data_connections/keys.py
 data_connections/archive/
+data_connections/UDL_KILI_Upload/
 data_connections/__pycache__/
 data/
+logs/
 data_finalized/
 Sentinel_Datasets/
 data_connections/src/UDL_KEY.py

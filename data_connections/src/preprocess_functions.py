@@ -174,21 +174,21 @@ def adaptiveIQR(data:np.ndarray) -> np.ndarray:
 
     return np.stack([contrast_enhance, contrast_enhance, contrast_enhance], axis=0)
 
-def zscale(data:np.ndarray) -> np.ndarray:
+def zscale(data:np.ndarray, axis=0) -> np.ndarray:
     zscaled = _zscale(data)
     zscaled = (zscaled * 255).astype(np.uint8)
 
-    return np.stack([zscaled, zscaled, zscaled], axis=0)
+    return np.stack([zscaled, zscaled, zscaled], axis=axis)
 
 def iqr_clipped(data, threshold=5) -> np.ndarray:
     data = _iqr_clip(data, threshold)
     data = (_minmax_scale(data)*255).astype(np.uint8)
     return np.stack([data]*3, axis=0)
 
-def iqr_log(data, threshold=5) -> np.ndarray:
+def iqr_log(data, threshold=5, axis=0) -> np.ndarray:
     data = _iqr_log(data, threshold)
     data = (_minmax_scale(data)*255).astype(np.uint8)
-    return np.stack([data]*3, axis=0)
+    return np.stack([data]*3, axis=axis)
 
 def channel_mixture_A(data:np.ndarray) -> np.ndarray:
     zscaled = _zscale(data)
@@ -217,8 +217,8 @@ def channel_mixture_C(data:np.ndarray) -> np.ndarray:
     data = (data / 65535*255).astype(np.uint8)
     return np.stack([data, contrast_enhance, zscaled], axis=0)
 
-def raw_file(data: np.ndarray) -> np.ndarray:
-    return  np.stack([data/65535*255]*3, axis=0).astype(np.uint8)
+def raw_file(data: np.ndarray, axis=0) -> np.ndarray:
+    return  np.stack([data/65535*255]*3, axis=axis).astype(np.uint8)
 
 
 def raw_file_16bit(data: np.ndarray) -> np.ndarray:

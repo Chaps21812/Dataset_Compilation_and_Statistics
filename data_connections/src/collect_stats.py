@@ -85,13 +85,20 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     data = fits_content[0].data
 
     sample_attributes = sample_attributes|dict(hdu)
-    sample_attributes.pop("COMMENT")
+    try: sample_attributes.pop("COMMENT")
+    except KeyError: pass
 
     x_res = hdu["NAXIS1"]
     y_res = hdu["NAXIS2"]
+
+    if "data" in json_content.keys():
+        json_content = json_content["data"]
+    # if "file" in json_content.keys():
+    #     json_content = json_content["file"]
     
     sample_attributes["filename"] = json_content["file"]["filename"]
-    sample_attributes = sample_attributes|SITE_PARAMS[json_content["file"]["id_sensor"]]
+    if "id_sensor" in json_content["file"].keys():
+        sample_attributes = sample_attributes|SITE_PARAMS[json_content["file"]["id_sensor"]]
 
     if "OBJECT" in sample_attributes.keys() and sample_attributes["OBJECT"] in SPACECRAFT.keys():
         norad_id = sample_attributes["OBJECT"]
@@ -114,7 +121,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     except KeyError:sample_attributes["label_updated"] = "N/A"
     # sample_attributes["too_few_stars"] = json_content["too_few_stars"]
     # sample_attributes["empty_image"] = json_content["empty_image"]
-    sample_attributes["num_objects"] = len(json_content["objects"])
+    sample_attributes["num_objects"] = len(json_content["objects"]) if "objects" in json_content.keys() else len(json_content["file"]["objects"])
     sample_attributes["exposure"] = hdu["EXPTIME"]
     sample_attributes["std_intensity"] = np.std(data)
     sample_attributes["median_intensity"] = np.median(data)
@@ -139,7 +146,8 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
     stars = 0
     streak_angles = []
     streak_lengths = []
-    for object in json_content["objects"]:
+    objssss = json_content["objects"] if "objects" in json_content.keys() else json_content["file"]["objects"]
+    for object in objssss:
         detection_dict = {}
         try: detection_dict["correlation_id"] = object["correlation_id"]
         except: detection_dict["correlation_id"] = "Error in collect ID"
@@ -243,7 +251,7 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         local_bkg_std = np.std(local_bkgs)
 
         detection_dict["local_prominence"] = float((signal-local_minimum)/(local_std+1*10**-5))
-        detection_dict["local_snr"] = float(0 if np.isnan((signal-local_bkg_mean)/(local_bkg_std+1*10**-5)) else (signal-local_bkg_mean)/(local_bkg_std+1*10**-5))
+        detection_dict["local_snr"] = float(-1 if np.isnan((signal-local_bkg_mean)/(local_bkg_std+1*10**-5)) else (signal-local_bkg_mean)/(local_bkg_std+1*10**-5))
         detection_dict["max_signal_diff"] = float(1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5))
         # detection_dict["global_snr"] = (signal-local_bkg_mean)/sample_attributes["std_intensity"]
         
