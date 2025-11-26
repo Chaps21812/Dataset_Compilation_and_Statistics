@@ -217,11 +217,24 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         x_end   = min(data.shape[1], x_max + padding)
         window = data[int(y_start):int(y_end),int(x_start):int(x_end)]
 
+
         x_center = (x_max+x_min)/2
         y_center = (y_max+y_min)/2
         w = abs(x_max-x_min)
         h = abs(y_max-y_min)
         local_backgrounds = []
+
+        #Signal subwindow 
+        try:
+            y_start = max(0, y_min + h/4)
+            y_end   = min(data.shape[0], y_max - h/4)
+            x_start = max(0, x_min + w/4)
+            x_end   = min(data.shape[1], x_max - w/4)
+            signal_window = data[int(y_start):int(y_end)+1,int(x_start):int(x_end)+1]
+            signal = np.max(signal_window)
+        except ValueError:
+            signal = data[int(y_cord), int(x_cord)] 
+
         for x_shift in (-1,0,1):
             for y_shift in (-1,0,1):
                 if y_shift == 0 and x_shift ==0:
@@ -244,14 +257,14 @@ def collect_stats(json_content:dict, fits_content:fits, padding:int=20) -> tuple
         local_maximum = np.max(window)
         local_std = np.std(window)
         
-        local_bkg_mean = np.mean(local_bkgs)
+        local_bkg_median = np.median(local_bkgs)
         if len(local_bkgs) < 1:
-            local_bkg_mean = local_minimum
+            local_bkg_median = local_minimum
 
         local_bkg_std = np.std(local_bkgs)
 
         detection_dict["local_prominence"] = float((signal-local_minimum)/(local_std+1*10**-5))
-        detection_dict["local_snr"] = float(-1 if np.isnan((signal-local_bkg_mean)/(local_bkg_std+1*10**-5)) else (signal-local_bkg_mean)/(local_bkg_std+1*10**-5))
+        detection_dict["local_snr"] = float(-1 if np.isnan((signal-local_bkg_median)/(local_bkg_std+1*10**-5)) else (signal-local_bkg_median)/(local_bkg_std+1*10**-5))
         detection_dict["max_signal_diff"] = float(1-(local_maximum-signal)/(local_maximum-local_minimum+1*10**-5))
         # detection_dict["global_snr"] = (signal-local_bkg_mean)/sample_attributes["std_intensity"]
         

@@ -44,10 +44,11 @@ def remake_TTV_split_and_preprocess(telescope_directory):
     for date_folder in os.listdir(telescope_directory):
         subfolder = os.path.join(telescope_directory, date_folder)
         if os.path.isdir(subfolder):
-            # dataset = raw_dataset(subfolder)
-            # dataset.reinitialize_raw_dataset()
+            dataset = raw_dataset(subfolder)
+            dataset.reinitialize_raw_dataset()
             coco_dataset = COCODataset(subfolder)
-            coco_dataset.archive_ttv_splits("log_IQR-16bit-89-11-0_TVT_split")
+            coco_dataset.build_annotations()
+            # coco_dataset.archive_ttv_splits("log_IQR-16bit-89-11-0_TVT_split")
             coco_dataset.generate_TTV_split(train_ratio=0.80,val_ratio=0.10,test_ratio=0.10)
             coco_dataset.move_fits_to_train_test_split(raw_file_16bit)
     print("Complete, have a nice day, say an affirmation, eat some cheese.")

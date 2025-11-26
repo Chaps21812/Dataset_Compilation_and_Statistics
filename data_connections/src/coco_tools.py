@@ -1951,14 +1951,19 @@ class COCODataset(PickleSerializable):
             for object in object_list:
 
 
-                # if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
-                #     continue
+                if include_sats and object["class_name"] == "Satellite" and object["type"] == "line":
+                    continue
                 if include_sats and object["class_name"] == "Satellite": 
                     #Create coco annotation for one image
-                    x1 = (object["x_center"]-object["bbox_width"]/2)*x_res
-                    y1 = (object["y_center"]-object["bbox_height"]/2)*y_res
-                    width = object["bbox_width"]*x_res
-                    height = object["bbox_height"]*y_res
+                    if "bbox_width" in object.keys(): w = object["bbox_width"]
+                    else: w = np.abs(object["x_max"]-object["x_min"])
+                    if "bbox_height" in object.keys(): h = object["bbox_height"]
+                    else: h = np.abs(object["y_max"]-object["y_min"])
+
+                    x1 = (object["x_center"]-w/2)*x_res
+                    y1 = (object["y_center"]-h/2)*y_res
+                    width = w*x_res
+                    height = h*y_res
                     x_center = object["x_center"]*x_res
                     y_center = object["y_center"]*y_res
                     if abs(width*height) > 1000:
