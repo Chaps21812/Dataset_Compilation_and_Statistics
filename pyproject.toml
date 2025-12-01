@@ -1,0 +1,13 @@
+[project]
+name = "dataset-compilation-and-statistics"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "astropy>=7.1.1",
+    "kili>=25.2.6",
+    "moviepy>=2.2.1",
+    "pydantic>=2.12.4",
+    "ratelimit>=2.2.1",
+]

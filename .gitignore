@@ -10,3 +10,7 @@ Sentinel_Datasets/
 data_connections/src/UDL_KEY.py
 **/__pycache__
 **.log
+.venv
+.vscode
+kili_det.json
+silt_det.json
