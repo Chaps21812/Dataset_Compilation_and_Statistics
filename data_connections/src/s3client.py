@@ -14,8 +14,10 @@ from botocore.exceptions import ClientError
 from .raw_datset import StatisticsFile
 from .collect_stats import collect_stats
 from .documentation import write_count
-from .UDL_KEY import UDL_KEY
+from .UDL_KEY import UDL_KEY, ACCESS_KEY, SECRET_KEY
 from .constants import SPACECRAFT
+from .AWS_client import RefreshableSession
+
 
 
 class S3Client:
@@ -29,7 +31,8 @@ class S3Client:
         Returns:
             S3Client
         """
-        self.client = boto3.client('s3')
+        self.client_generator = RefreshableSession(ACCESS_KEY, SECRET_KEY)
+        self.client = self.client_generator.client("s3")
         self.bucket = "silt-annotations"
         self.directory = directory
 
@@ -240,6 +243,7 @@ class S3Client:
         for annotT in tqdm(annotations, desc="Downloading and Collecting Statistics"):
             sample_attributes = {}
             object_attributes = []
+            self.client = self.client_generator.client("s3")
 
             try:
                 json_content = self._download_annotation(annotT)
@@ -358,7 +362,7 @@ class S3Client:
 
         for annotT in tqdm(annotations, desc="Downloading and Collecting Statistics"):
         # for annotT,fitsT in tqdm(self.annotation_to_fits.items(), desc="Downloading and Collecting Statistics"):
-
+            self.client = self.client_generator.client("s3")
             sample_attributes = {}
             object_attributes = []
 
@@ -487,7 +491,8 @@ class S3Client:
         counter = Counter()
 
         for annotT,fitsT in tqdm(self.annotation_to_fits.items(), desc="Downloading and Collecting Statistics"):
-        # for annotT,fitsT in self.annotation_to_fits.items():
+            self.client = self.client_generator.client("s3")
+            # for annotT,fitsT in self.annotation_to_fits.items():
             sample_attributes = {}
             object_attributes = []
             try:
@@ -565,6 +570,7 @@ class S3Client:
         
         for annot_name,annot_path in tqdm(self.unmatched_annotations.items(), desc="Downloading and Collecting Statistics"):
         # for annotT,fitsT in self.annotation_to_fits.items():
+            self.client = self.client_generator.client("s3")
             sample_attributes = {}
             object_attributes = []
             try:
@@ -633,7 +639,6 @@ class S3Client:
             #     print(f"Error processing {annot_path}: {e}")
 
         write_count(os.path.join(download_directory, "count.txt"),len(db.annotation_attributes), len(db.sample_attributes),counter)
-
 
 
 

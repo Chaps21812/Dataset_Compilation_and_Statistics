@@ -67,6 +67,23 @@ def remake_TTV_split_and_preprocess(telescope_directory):
                 train_ratio=0.80, val_ratio=0.10, test_ratio=0.10
             )
             coco_dataset.move_fits_to_train_test_split(raw_file_16bit)
+            coco_dataset.remove_corrupt_annotations()
+    print("Complete, have a nice day, say an affirmation, eat some cheese.")
+
+
+def remove_corrupt_annotations(telescope_directory):
+    # Create logger object
+    file_logger = SimpleFileLogger(os.path.join("/data/Dataset_Compilation_and_Statistics/logs",f'Removing_Corruptions-{os.path.basename(telescope_directory)}.log'))
+    sys.stdout = file_logger
+    sys.stderr = file_logger
+    print(f"PRocessing Dataset {os.path.basename(telescope_directory)}...(PID={os.getpid()})")
+
+    telescope_basename = os.path.basename(telescope_directory)
+    for date_folder in os.listdir(telescope_directory):
+        subfolder = os.path.join(telescope_directory, date_folder)
+        if os.path.isdir(subfolder):
+            coco_dataset = COCODataset(subfolder)
+            coco_dataset.remove_corrupt_annotations()
     print("Complete, have a nice day, say an affirmation, eat some cheese.")
 
 
@@ -109,10 +126,7 @@ if __name__ == "__main__":
     ALL_TELESCOPES = [TELESCOPE_A, TELESCOPE_B, TELESCOPE_C, TELESCOPE_D, TELESCOPE_E]
     # ALL_TELESCOPES = [TELESCOPE_B]
 
-    tasks = [
-        mp.Process(target=remake_TTV_split_and_preprocess, args=(dataset,))
-        for dataset in ALL_TELESCOPES
-    ]
+    tasks = [mp.Process(target=remove_corrupt_annotations, args=(dataset,)) for dataset in ALL_TELESCOPES]
 
     try:
         print("Starting tasks")
